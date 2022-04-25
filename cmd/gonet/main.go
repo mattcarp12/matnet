@@ -1,7 +1,11 @@
 package main
 
-import "github.com/mattcarp12/go-net/pkg/link"
-import "github.com/mattcarp12/go-net/pkg/network"
+import (
+	"github.com/mattcarp12/go-net/pkg/services/linklayer"
+	"github.com/mattcarp12/go-net/pkg/services/networklayer"
+)
+
+
 
 
 var done = make(chan bool)
@@ -9,10 +13,10 @@ var done = make(chan bool)
 func main() {
 
 	// Initialize the link layer
-	link := link.Init()
+	link := linklayer.Init()
 
 	// Initialize the network layer
-	network.Init(link)
+	networklayer.Init(link)
 
 	<-done
 }
