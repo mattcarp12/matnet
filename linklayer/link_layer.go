@@ -3,24 +3,24 @@ package linklayer
 import (
 	"net"
 
-	"github.com/mattcarp12/go-net/pkg/entities/netdev"
-	"github.com/mattcarp12/go-net/pkg/entities/protocols"
-	"github.com/mattcarp12/go-net/pkg/tuntap"
+	"github.com/mattcarp12/go-net/linklayer/ethernet"
+	"github.com/mattcarp12/go-net/netstack"
+	"github.com/mattcarp12/go-net/tuntap"
 )
 
 type LinkLayer struct {
-	protocols.PDUReaderWriter
-	protocols.ILayer
+	netstack.SkBuffReaderWriter
+	netstack.ILayer
 
 	// TODO: support multiple devices
 	tap  *TAPDevice
 	loop *LoopbackDevice
 }
 
-func NewLinkLayer(tap *TAPDevice, loop *LoopbackDevice, eth *Ethernet) *LinkLayer {
+func NewLinkLayer(tap *TAPDevice, loop *LoopbackDevice, eth *ethernet.Ethernet) *LinkLayer {
 	ll := &LinkLayer{}
-	ll.PDUReaderWriter = protocols.NewPDUChannels()
-	ll.AddProtocol(protocols.ProtocolTypeEthernet, eth)
+	ll.SkBuffReaderWriter = netstack.NewSkBuffChannels()
+	ll.AddProtocol(eth)
 	ll.tap = tap
 	ll.loop = loop
 	return ll
@@ -33,28 +33,27 @@ func Init() *LinkLayer {
 	loop := NewLoopback(net.IPv4(127, 0, 0, 1), net.HardwareAddr{0x00, 0x00, 0x00, 0x00, 0x00, 0x00})
 
 	// Create L2 protocols
-	eth := NewEthernet()
+	eth := ethernet.NewEthernet()
 
 	// Create Link Layer
-	ll := NewLinkLayer(tap, loop, eth)
+	link_layer := NewLinkLayer(tap, loop, eth)
 
 	// Give Devices pointers to Link Layer
-	tap.LinkLayer = ll
-	loop.LinkLayer = ll
+	tap.LinkLayer = link_layer
+	loop.LinkLayer = link_layer
 
 	// Give Ethernet protocol pointer to Link Layer
-	eth.layer = ll
+	eth.SetLayer(link_layer)
 
 	// Start device goroutines
-	go netdev.RxLoop(tap)
-	go netdev.RxLoop(loop)
+	go netstack.IfRxLoop(tap)
+	go netstack.IfRxLoop(loop)
 
 	// Start protocol goroutines
-	ethProto, _ := ll.GetProtocol(protocols.ProtocolTypeEthernet)
-	go protocols.RxLoop(ethProto)
+	go netstack.ProtocolRxLoop(eth)
 
 	// Start link layer goroutines
-	go protocols.RxDispatch(ll)
+	go netstack.RxDispatch(link_layer)
 
-	return ll
+	return link_layer
 }

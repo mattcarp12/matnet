@@ -3,13 +3,9 @@ package linklayer
 import (
 	"net"
 
-	"github.com/mattcarp12/go-net/pkg/entities/netdev"
-	"github.com/mattcarp12/go-net/pkg/entities/protocols"
-	"github.com/mattcarp12/go-net/pkg/services/skbuff"
-	"github.com/mattcarp12/go-net/pkg/tuntap"
+	"github.com/mattcarp12/go-net/netstack"
+	"github.com/mattcarp12/go-net/tuntap"
 )
-
-type DataHandler func([]byte)
 
 // PhysicalDevice contains the common attributes for all network devices.
 // Each device type should inherit this struct.
@@ -18,30 +14,49 @@ type PhysicalDevice struct {
 	MAC       net.HardwareAddr
 	RxPackets uint64
 	TxPackets uint64
-	Type      protocols.ProtocolType
-	txChan    chan protocols.PDU
-	RxHandler DataHandler
+	Type      netstack.ProtocolType
+	txChan    chan *netstack.SkBuff
+	RxHandler func([]byte)
 	LinkLayer *LinkLayer
 }
 
-func (dev *PhysicalDevice) GetType() protocols.ProtocolType {
+func (dev *PhysicalDevice) GetType() netstack.ProtocolType {
 	return dev.Type
 }
 
-func (dev *PhysicalDevice) TxChan() chan protocols.PDU {
+func (dev *PhysicalDevice) TxChan() chan *netstack.SkBuff {
 	return dev.txChan
 }
 
 func (dev *PhysicalDevice) HandleRx(data []byte) {
-	// Make a PDU
-	skb := skbuff.New(data)
+	// Make a new SkBuff
+	skb := netstack.NewSkBuff(data)
 
-	// The PDU is being passed to the link layer, so need to set the
+	// The skb is being passed to the link layer, so need to set the
 	// type of packet so it can dispatch to the correct handler.
 	skb.SetType(dev.GetType())
 
-	// Pass it to the link layer
+	// Set pointer to the NetworkInterface that this packet came in on
+	skb.SetNetworkInterface(dev)
+
+	// Pass it to the link layer for further processing
 	dev.LinkLayer.RxChan() <- skb
+}
+
+func (dev *PhysicalDevice) GetHWAddr() net.HardwareAddr {
+	return dev.MAC
+}
+
+func (dev *PhysicalDevice) GetNetworkAddr() net.IP {
+	return dev.IP
+}
+
+func (dev *PhysicalDevice) Read() ([]byte, error) {
+	return nil, nil
+}
+
+func (dev *PhysicalDevice) Write(data []byte) error {
+	return nil
 }
 
 /**
@@ -58,6 +73,7 @@ func NewTap(iface *tuntap.Interface, ip net.IP, hw net.HardwareAddr) *TAPDevice 
 	netdev.Iface = iface
 	netdev.IP = ip
 	netdev.MAC = hw
+	netdev.Type = netstack.ProtocolTypeEthernet
 	return &netdev
 }
 
@@ -81,18 +97,17 @@ type LoopbackDevice struct {
 	rx_chan chan []byte
 }
 
-var _ netdev.NetworkDevice = &LoopbackDevice{}
-
 func NewLoopback(ip net.IP, hw net.HardwareAddr) *LoopbackDevice {
 	netdev := LoopbackDevice{}
 	netdev.IP = ip
 	netdev.MAC = hw
+	netdev.Type = netstack.ProtocolTypeEthernet
 	return &netdev
 }
 
 func (dev *LoopbackDevice) Read() ([]byte, error) {
-	pdu := <-dev.TxChan()
-	return pdu.GetBytes(), nil
+	skb := <-dev.TxChan()
+	return skb.GetBytes(), nil
 }
 
 func (dev *LoopbackDevice) Write(data []byte) error {

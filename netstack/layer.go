@@ -1,15 +1,15 @@
-package protocols
+package netstack
 
 import "log"
 
 // Layer represents a layer in the network stack
 // A layer consists of a set of protocols
-// A layer is responsible for dispatching PDUs to the appropriate protocol
-// The protocol processes PDUs and sends them to the next layer (up or down)
+// A layer is responsible for dispatching SkBuffs to the appropriate protocol
+// The protocol processes SkBuffs and sends them to the next layer (up or down)
 type Layer interface {
 	GetProtocol(ProtocolType) (Protocol, error)
-	AddProtocol(ProtocolType, Protocol)
-	PDUReaderWriter
+	AddProtocol(Protocol)
+	SkBuffReaderWriter
 
 	GetNextLayer() Layer
 	SetNextLayer(Layer)
@@ -33,11 +33,11 @@ func (layer *ILayer) GetProtocol(protocolType ProtocolType) (Protocol, error) {
 	return protocol, nil
 }
 
-func (layer *ILayer) AddProtocol(protocolType ProtocolType, protocol Protocol) {
+func (layer *ILayer) AddProtocol(protocol Protocol) {
 	if layer.protocols == nil {
 		layer.protocols = make(map[ProtocolType]Protocol)
 	}
-	layer.protocols[protocolType] = protocol
+	layer.protocols[protocol.GetType()] = protocol
 }
 
 func (layer *ILayer) GetNextLayer() Layer {
@@ -58,36 +58,36 @@ func (layer *ILayer) SetPrevLayer(prevLayer Layer) {
 
 func RxDispatch(layer Layer) {
 	for {
-		// Layer reads PDU from it's rx_chan
-		pdu := <-layer.RxChan()
+		// Layer reads SkBuff from it's rx_chan
+		skb := <-layer.RxChan()
 
-		// Dispatch PDU to appropriate protocol
-		protocol, err := layer.GetProtocol(pdu.GetType())
+		// Dispatch skb to appropriate protocol
+		protocol, err := layer.GetProtocol(skb.GetType())
 		if err != nil {
 			log.Printf("Error getting protocol: %v", err)
 			continue
 		}
 
-		// Handle PDU
-		protocol.HandleRx(pdu)
+		// Handle skb
+		protocol.HandleRx(skb)
 
 	}
 }
 
 func TxDispatch(layer Layer) {
 	for {
-		// Layer reads PDU from it's tx_chan
-		pdu := <-layer.TxChan()
+		// Layer reads skb from it's tx_chan
+		skb := <-layer.TxChan()
 
-		// Dispatch PDU to appropriate protocol
-		protocol, err := layer.GetProtocol(pdu.GetType())
+		// Dispatch skb to appropriate protocol
+		protocol, err := layer.GetProtocol(skb.GetType())
 		if err != nil {
 			log.Printf("Error getting protocol: %v", err)
 			continue
 		}
 
-		// Handle PDU
-		protocol.HandleTx(pdu)
+		// Handle skb
+		protocol.HandleTx(skb)
 
 	}
 }

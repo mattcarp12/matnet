@@ -1,8 +1,8 @@
 package main
 
 import (
-	"github.com/mattcarp12/go-net/pkg/services/linklayer"
-	"github.com/mattcarp12/go-net/pkg/services/networklayer"
+	"github.com/mattcarp12/go-net/linklayer"
+	"github.com/mattcarp12/go-net/networklayer"
 )
 
 

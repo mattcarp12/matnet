@@ -1,37 +1,40 @@
-package netdev
+package netstack
 
 import (
 	"log"
-	"github.com/mattcarp12/go-net/pkg/entities/protocols"
+	"net"
 )
 
-type NetworkDevice interface {
+type NetworkInterface interface {
 	Read() ([]byte, error)
 	Write([]byte) error
-	GetType() protocols.ProtocolType
+	GetType() ProtocolType
+	GetHWAddr() net.HardwareAddr
+	GetNetworkAddr() net.IP
+	//TODO GetMTU() uint16
 
 	// HandleRX is called when a packet is received from the "wire"
 	HandleRx([]byte)
 
 	// Network Devices have a TxChan that is used to send packets to the "wire"
-	protocols.PDUWriter
+	SkBuffWriter
 }
 
-func RxLoop(netdev NetworkDevice) {
+func IfRxLoop(iface NetworkInterface) {
 	for {
-		data, err := netdev.Read()
+		data, err := iface.Read()
 		if err != nil {
 			log.Println("Error reading from network device:", err)
 			continue
 		}
-		netdev.HandleRx(data)
+		iface.HandleRx(data)
 	}
 }
 
-func TxLoop(netdev NetworkDevice) {
+func IfTxLoop(iface NetworkInterface) {
 	for {
-		pdu := <-netdev.TxChan()
-		err := netdev.Write(pdu.GetBytes())
+		skb := <-iface.TxChan()
+		err := iface.Write(skb.GetBytes())
 		if err != nil {
 			log.Println("Error writing to network device:", err)
 			continue
