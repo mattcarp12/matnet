@@ -20,6 +20,11 @@ type NetworkInterface interface {
 	SkBuffWriter
 }
 
+func StartInterface(iface NetworkInterface) {
+	go IfRxLoop(iface)
+	go IfTxLoop(iface)
+}
+
 func IfRxLoop(iface NetworkInterface) {
 	for {
 		data, err := iface.Read()

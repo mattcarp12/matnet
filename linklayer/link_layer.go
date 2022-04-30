@@ -26,6 +26,14 @@ func NewLinkLayer(tap *TAPDevice, loop *LoopbackDevice, eth *ethernet.Ethernet) 
 	return ll
 }
 
+func (ll *LinkLayer) SetNeighborProtocol(neigh netstack.NeighborProtocol) {
+	eth, err := ll.GetProtocol(netstack.ProtocolTypeEthernet)
+	if err != nil {
+		panic(err)
+	}
+	eth.(*ethernet.Ethernet).SetNeighborProtocol(neigh)
+}
+
 func Init() *LinkLayer {
 	// Create network devices
 	tap := NewTap(tuntap.TapInit("tap0", tuntap.DefaultIPv4Addr),
@@ -46,14 +54,14 @@ func Init() *LinkLayer {
 	eth.SetLayer(link_layer)
 
 	// Start device goroutines
-	go netstack.IfRxLoop(tap)
-	go netstack.IfRxLoop(loop)
+	netstack.StartInterface(tap)
+	netstack.StartInterface(loop)
 
 	// Start protocol goroutines
-	go netstack.ProtocolRxLoop(eth)
+	netstack.StartProtocol(eth)
 
 	// Start link layer goroutines
-	go netstack.RxDispatch(link_layer)
+	netstack.StartLayerDispatchLoops(link_layer)
 
 	return link_layer
 }

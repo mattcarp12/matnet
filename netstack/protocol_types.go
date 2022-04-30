@@ -13,7 +13,7 @@ const (
 	ProtocolTypeICMPv6
 	ProtocolTypeTCP
 	ProtocolTypeUDP
-	ProtocolUnknown ProtocolType = 0xFFFF
+	ProtocolTypeUnknown ProtocolType = 0xFFFF
 )
 
 var ErrProtocolNotFound = errors.New("protocol not found")

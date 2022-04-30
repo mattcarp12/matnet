@@ -4,6 +4,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"net"
+
+	"github.com/mattcarp12/go-net/netstack"
 )
 
 var (
@@ -17,8 +19,8 @@ const (
 	ARP_REPLY   = 2
 )
 
-const HardwareTypeEthernet = 1
-const ProtocolTypeIPv4 = 0x0800
+const ARP_HardwareTypeEthernet = 1
+const ARP_ProtocolTypeIPv4 = 0x0800
 
 type ARPHeader struct {
 	HardwareType uint16
@@ -32,23 +34,21 @@ type ARPHeader struct {
 	TargetIPAddr net.IP
 }
 
-func ParseARPHeader(b []byte) (*ARPHeader, error) {
+func (ah *ARPHeader) Unmarshal(b []byte) error {
 	if len(b) < 8 {
-		return nil, ErrInvalidARPHeader
+		return ErrInvalidARPHeader
 	}
 
-	ah := &ARPHeader{
-		HardwareType: binary.BigEndian.Uint16(b[0:2]),
-		ProtocolType: binary.BigEndian.Uint16(b[2:4]),
-		HardwareSize: b[4],
-		ProtocolSize: b[5],
-		OpCode:       binary.BigEndian.Uint16(b[6:8]),
-	}
+	ah.HardwareType = binary.BigEndian.Uint16(b[0:2])
+	ah.ProtocolType = binary.BigEndian.Uint16(b[2:4])
+	ah.HardwareSize = b[4]
+	ah.ProtocolSize = b[5]
+	ah.OpCode = binary.BigEndian.Uint16(b[6:8])
 
 	// Parse variable length addresses
 	minLen := 8 + int(ah.HardwareSize)*2 + int(ah.ProtocolSize)*2
 	if len(b) < minLen {
-		return nil, ErrInvalidARPHeader
+		return ErrInvalidARPHeader
 	}
 
 	// Source HW address
@@ -63,11 +63,11 @@ func ParseARPHeader(b []byte) (*ARPHeader, error) {
 	// Target IP address
 	ah.TargetIPAddr = b[8+int(ah.HardwareSize)*2+int(ah.ProtocolSize) : 8+int(ah.HardwareSize)*2+int(ah.ProtocolSize)*2]
 
-	return ah, nil
+	return nil
 
 }
 
-func (arpHeader *ARPHeader) Marshal() []byte {
+func (arpHeader *ARPHeader) Marshal() ([]byte, error) {
 	b := make([]byte, 8+len(arpHeader.SourceHWAddr)+len(arpHeader.SourceIPAddr)+len(arpHeader.TargetHWAddr)+len(arpHeader.TargetIPAddr))
 
 	// Hardware type
@@ -97,5 +97,22 @@ func (arpHeader *ARPHeader) Marshal() []byte {
 	// Target IP address
 	copy(b[8+int(arpHeader.HardwareSize)*2+int(arpHeader.ProtocolSize):8+int(arpHeader.HardwareSize)*2+int(arpHeader.ProtocolSize)*2], arpHeader.TargetIPAddr)
 
-	return b
+	return b, nil
+}
+
+func (arpHeader *ARPHeader) GetDstIP() net.IP {
+	return arpHeader.TargetIPAddr
+}
+
+func (arpHeader *ARPHeader) GetSrcIP() net.IP {
+	return arpHeader.SourceIPAddr
+}
+
+func (arpHeader *ARPHeader) GetType() netstack.ProtocolType {
+	return netstack.ProtocolTypeARP
+}
+
+func (arpHeader *ARPHeader) GetL4Type() netstack.ProtocolType {
+	// This shouldn't be needed...
+	return netstack.ProtocolTypeUnknown
 }

@@ -10,11 +10,11 @@ type SkBuff struct {
 
 	iface NetworkInterface
 
-	l2_header Header
+	l2_header L2Header
 
-	l3_header Header
+	l3_header L3Header
 
-	l4_header Header
+	l4_header L4Header
 }
 
 func (s *SkBuff) GetBytes() []byte {
@@ -58,27 +58,27 @@ func (skb *SkBuff) SetNetworkInterface(iface NetworkInterface) {
 	of the skbuff.
 */
 
-func (skb *SkBuff) GetL2Header() Header {
+func (skb *SkBuff) GetL2Header() L2Header {
 	return skb.l2_header
 }
 
-func (skb *SkBuff) SetL2Header(h Header) {
+func (skb *SkBuff) SetL2Header(h L2Header) {
 	skb.l2_header = h
 }
 
-func (skb *SkBuff) GetL3Header() Header {
+func (skb *SkBuff) GetL3Header() L3Header {
 	return skb.l3_header
 }
 
-func (skb *SkBuff) SetL3Header(h Header) {
+func (skb *SkBuff) SetL3Header(h L3Header) {
 	skb.l3_header = h
 }
 
-func (skb *SkBuff) GetL4Header() Header {
+func (skb *SkBuff) GetL4Header() L4Header {
 	return skb.l4_header
 }
 
-func (skb *SkBuff) SetL4Header(h Header) {
+func (skb *SkBuff) SetL4Header(h L4Header) {
 	skb.l4_header = h
 }
 

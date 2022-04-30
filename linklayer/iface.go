@@ -1,6 +1,7 @@
 package linklayer
 
 import (
+	"log"
 	"net"
 
 	"github.com/mattcarp12/go-net/netstack"
@@ -74,6 +75,8 @@ func NewTap(iface *tuntap.Interface, ip net.IP, hw net.HardwareAddr) *TAPDevice 
 	netdev.IP = ip
 	netdev.MAC = hw
 	netdev.Type = netstack.ProtocolTypeEthernet
+	netdev.txChan = make(chan *netstack.SkBuff)
+
 	return &netdev
 }
 
@@ -84,6 +87,7 @@ func (dev *TAPDevice) Read() ([]byte, error) {
 }
 
 func (dev *TAPDevice) Write(data []byte) error {
+	log.Printf("TAPDevice.Write: %v", data)
 	_, err := dev.Iface.Write(data)
 	return err
 }
@@ -102,6 +106,8 @@ func NewLoopback(ip net.IP, hw net.HardwareAddr) *LoopbackDevice {
 	netdev.IP = ip
 	netdev.MAC = hw
 	netdev.Type = netstack.ProtocolTypeEthernet
+	netdev.txChan = make(chan *netstack.SkBuff)
+	netdev.rx_chan = make(chan []byte)
 	return &netdev
 }
 

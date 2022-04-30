@@ -56,6 +56,17 @@ func (layer *ILayer) SetPrevLayer(prevLayer Layer) {
 	layer.prevLayer = prevLayer
 }
 
+/*
+	A layer has two goroutines that run in parallel:
+		1. RxDispatch - reads SkBuffs from the layer's rx_chan and dispatches them to the appropriate protocol
+		2. TxDispatch - reads SkBuffs from the layer's tx_chan and dispatches them to the appropriate protocol
+*/
+
+func StartLayerDispatchLoops(layer Layer) {
+	go RxDispatch(layer)
+	go TxDispatch(layer)
+}
+
 func RxDispatch(layer Layer) {
 	for {
 		// Layer reads SkBuff from it's rx_chan
@@ -68,8 +79,8 @@ func RxDispatch(layer Layer) {
 			continue
 		}
 
-		// Handle skb
-		protocol.HandleRx(skb)
+		// Send skb to protocol
+		protocol.RxChan() <- skb
 
 	}
 }
@@ -86,8 +97,8 @@ func TxDispatch(layer Layer) {
 			continue
 		}
 
-		// Handle skb
-		protocol.HandleTx(skb)
+		// Send skb to protocol
+		protocol.TxChan() <- skb
 
 	}
 }

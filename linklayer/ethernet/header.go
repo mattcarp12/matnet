@@ -67,6 +67,19 @@ func (eh *EthernetHeader) GetNextLayerType() (netstack.ProtocolType, error) {
 	case EthernetTypeIPv6:
 		return netstack.ProtocolTypeIPv6, nil
 	default:
-		return netstack.ProtocolUnknown, netstack.ErrProtocolNotFound
+		return netstack.ProtocolTypeUnknown, netstack.ErrProtocolNotFound
+	}
+}
+
+func GetEtherTypeFromProtocolType(pt netstack.ProtocolType) (uint16, error) {
+	switch pt {
+	case netstack.ProtocolTypeIPv4:
+		return EthernetTypeIPv4, nil
+	case netstack.ProtocolTypeARP:
+		return EthernetTypeARP, nil
+	case netstack.ProtocolTypeIPv6:
+		return EthernetTypeIPv6, nil
+	default:
+		return 0, netstack.ErrProtocolNotFound
 	}
 }

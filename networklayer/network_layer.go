@@ -38,6 +38,10 @@ func Init(link_layer *linklayer.LinkLayer) *NetworkLayer {
 	// Set Link Layer as previous layer for Network Layer
 	network_layer.SetPrevLayer(link_layer)
 
+	// Create neighbor resolution subsystem
+	neigh := &neighborSubsystem{arp}
+	link_layer.SetNeighborProtocol(neigh)
+
 	go netstack.RxDispatch(network_layer)
 	go netstack.ProtocolRxLoop(arp)
 	go netstack.ProtocolRxLoop(ipv4)

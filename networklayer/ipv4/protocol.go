@@ -1,7 +1,7 @@
 package ipv4
 
 import (
-	"log"
+	// "log"
 
 	"github.com/mattcarp12/go-net/netstack"
 )
@@ -17,9 +17,9 @@ func NewIPV4() *IPV4 {
 }
 
 func (ipv4 *IPV4) HandleRx(skb *netstack.SkBuff) {
-	log.Printf("IPV4: %v", skb)
+	// log.Printf("IPV4: %v", skb)
 }
 
 func (ipv4 *IPV4) HandleTx(skb *netstack.SkBuff) {
-	log.Printf("IPV4: %v", skb)
+	// log.Printf("IPV4: %v", skb)
 }

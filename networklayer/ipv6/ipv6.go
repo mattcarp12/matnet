@@ -1,7 +1,7 @@
 package ipv6
 
 import (
-	"log"
+	// "log"
 
 	"github.com/mattcarp12/go-net/netstack"
 )
@@ -17,9 +17,9 @@ func NewIPV6() *IPV6 {
 }
 
 func (ipv6 *IPV6) HandleRx(skb *netstack.SkBuff) {
-	log.Printf("IPV6: %v", skb)
+	// log.Printf("IPV6: %v", skb)
 }
 
 func (ipv6 *IPV6) HandleTx(skb *netstack.SkBuff) {
-	log.Printf("IPV6: %v", skb)
+	// log.Printf("IPV6: %v", skb)
 }

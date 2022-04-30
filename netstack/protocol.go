@@ -48,7 +48,7 @@ func (protocol *IProtocol) SetLayer(layer Layer) {
 	ProtocolXXLoop used to start the Rx and Tx loops for each protocol.
 */
 
-func ProtocolLoop(protocol Protocol) {
+func StartProtocol(protocol Protocol) {
 	go ProtocolRxLoop(protocol)
 	go ProtocolTxLoop(protocol)
 }

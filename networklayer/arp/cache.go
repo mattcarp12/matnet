@@ -1,6 +1,7 @@
 package arp
 
 import (
+	"errors"
 	"net"
 	"time"
 )
@@ -36,10 +37,12 @@ func (c *ARPCache) Cleanup() {
 	}
 }
 
-func (c *ARPCache) Lookup(ip net.IP) (net.HardwareAddr, bool) {
+var ErrArpCacheMiss error = errors.New("arp cache miss")
+
+func (c *ARPCache) Lookup(ip net.IP) (net.HardwareAddr, error) {
 	if entry, ok := (*c)[ip.String()]; ok {
-		return entry.MAC, true
+		return entry.MAC, nil
 	}
 
-	return nil, false
+	return nil, ErrArpCacheMiss
 }
