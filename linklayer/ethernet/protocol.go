@@ -33,16 +33,24 @@ func (eth *Ethernet) HandleRx(skb *netstack.SkBuff) {
 	err := eth_header.Unmarshal(skb.GetBytes())
 	if err != nil {
 		log.Printf("Error parsing ethernet header: %v", err)
+		return
 	}
+
+	// Check if unicast
+	if IsUnicast(eth_header.addr.DstAddr) {
+		// Check if the packed is destined for this interface
+		if eth_header.addr.DstAddr.String() != skb.GetNetworkInterface().GetHWAddr().String() {
+			log.Printf("Packet not for this interface (dst: %s, src: %s)", eth_header.addr.DstAddr.String(), skb.GetNetworkInterface().GetHWAddr().String())
+			return
+		}
+	} // If multicast or broadcast, continue processing
+
+	// Set link layer header
+	skb.SetL2Header(&eth_header)
 
 	// Set skb type to the next layer type (ipv4, arp, etc)
 	// by inspecting EtherType field
-	nextLayerType, err := eth_header.GetNextLayerType()
-	if err != nil {
-		log.Printf("Error getting next layer type: %v", err)
-	}
-
-	skb.SetType(nextLayerType)
+	skb.SetType(eth_header.GetL3Type())
 
 	// Strip ethernet header from skb data buffer
 	skb.StripBytes(EthernetHeaderSize)
@@ -102,6 +110,5 @@ func (eth *Ethernet) HandleTx(skb *netstack.SkBuff) {
 	skb.PrependBytes(eth_header_bytes)
 
 	// Pass to network interface
-	iface := skb.GetNetworkInterface()
-	iface.TxChan() <- skb
+	skb.GetNetworkInterface().TxChan() <- skb
 }

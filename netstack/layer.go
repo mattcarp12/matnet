@@ -2,10 +2,12 @@ package netstack
 
 import "log"
 
-// Layer represents a layer in the network stack
-// A layer consists of a set of protocols
-// A layer is responsible for dispatching SkBuffs to the appropriate protocol
-// The protocol processes SkBuffs and sends them to the next layer (up or down)
+/*
+	Layer represents a layer in the network stack (e.g. link layer, network layer, transport layer)
+	A layer consists of a set of protocols.
+	A layer is responsible for dispatching SkBuffs to the appropriate protocol.
+	A layer also contains pointers to its neighboring layers.
+*/
 type Layer interface {
 	GetProtocol(ProtocolType) (Protocol, error)
 	AddProtocol(Protocol)
@@ -17,9 +19,10 @@ type Layer interface {
 	SetPrevLayer(Layer)
 }
 
-// ILayer is an implementation of Layer interface
-// to be used by other layer implementations
+// ILayer is an helper object for implementing Layer
+// It implements common methods for all layers
 type ILayer struct {
+	SkBuffReaderWriter
 	protocols map[ProtocolType]Protocol
 	nextLayer Layer
 	prevLayer Layer

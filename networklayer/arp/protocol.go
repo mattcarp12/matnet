@@ -62,7 +62,7 @@ func (arp *ARPProtocol) HandleRx(skb *netstack.SkBuff) {
 	arp.ARPReply(arpHeader, skb)
 }
 
-func (ap *ARPProtocol) ARPReply(inArpHeader *ARPHeader, inSkb *netstack.SkBuff) {
+func (arp *ARPProtocol) ARPReply(inArpHeader *ARPHeader, inSkb *netstack.SkBuff) {
 	// Create a new arp header from the request header
 	arpReplyHeader := &ARPHeader{}
 	arpReplyHeader.HardwareType = inArpHeader.HardwareType
@@ -95,9 +95,8 @@ func (ap *ARPProtocol) ARPReply(inArpHeader *ARPHeader, inSkb *netstack.SkBuff) 
 	// which we get from the network interface
 	arpReplySkb.SetType(arpReplySkb.GetNetworkInterface().GetType())
 
-	// Send the arp reply to link layer
-	link_layer := ap.GetLayer().GetPrevLayer()
-	link_layer.TxChan() <- arpReplySkb
+	// Send the arp reply down to link layer
+	arp.TxDown(arpReplySkb)
 }
 
 func (arp *ARPProtocol) ARPRequest(ip net.IP, iface netstack.NetworkInterface) {
@@ -131,9 +130,8 @@ func (arp *ARPProtocol) ARPRequest(ip net.IP, iface netstack.NetworkInterface) {
 	// which we get from the network interface
 	arpSkb.SetType(iface.GetType())
 
-	// Send the arp request to link layer
-	link_layer := arp.GetLayer().GetPrevLayer()
-	link_layer.TxChan() <- arpSkb
+	// Send the arp request down to link layer
+	arp.TxDown(arpSkb)
 }
 
 // This is not used, use ARPRequest instead

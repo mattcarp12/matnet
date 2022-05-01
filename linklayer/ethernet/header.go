@@ -54,20 +54,28 @@ func (eh *EthernetHeader) GetType() netstack.ProtocolType {
 	return netstack.ProtocolTypeEthernet
 }
 
-func (eh *EthernetHeader) GetAddressPair() EthernetAddressPair {
-	return eh.addr
+func (eh *EthernetHeader) GetDstMAC() net.HardwareAddr {
+	return eh.addr.DstAddr
 }
 
-func (eh *EthernetHeader) GetNextLayerType() (netstack.ProtocolType, error) {
+func (eh *EthernetHeader) GetSrcMAC() net.HardwareAddr {
+	return eh.addr.SrcAddr
+}
+
+/*
+	Helper functions to convert between EtherType and netstack.ProtocolType
+*/
+
+func (eh *EthernetHeader) GetL3Type() netstack.ProtocolType {
 	switch eh.EtherType {
 	case EthernetTypeIPv4:
-		return netstack.ProtocolTypeIPv4, nil
+		return netstack.ProtocolTypeIPv4
 	case EthernetTypeARP:
-		return netstack.ProtocolTypeARP, nil
+		return netstack.ProtocolTypeARP
 	case EthernetTypeIPv6:
-		return netstack.ProtocolTypeIPv6, nil
+		return netstack.ProtocolTypeIPv6
 	default:
-		return netstack.ProtocolTypeUnknown, netstack.ErrProtocolNotFound
+		return netstack.ProtocolTypeUnknown
 	}
 }
 

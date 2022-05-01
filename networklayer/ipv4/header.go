@@ -31,47 +31,48 @@ const (
 
 const IPv4HeaderSize = 20
 
-var ErrInvalidIPv4Header = errors.New("invalid IPv4 header")
+var (
+	ErrInvalidIPv4Header = errors.New("invalid IPv4 header")
+	ErrTTLZero           = errors.New("TTL is zero")
+	ErrInvalidCheckSum   = errors.New("invalid checksum")
+)
 
 func (h *IPv4Header) Marshal() ([]byte, error) {
 	// make byte buffer for IPv4 header
 	b := make([]byte, IPv4HeaderSize)
 
-	// version
+	// version and IHL
 	b[0] = (4 << 4) | (5 & 0x0f)
 
-	// IHL
-	b[1] = 5
-
 	// type of service
-	b[2] = 0
+	b[1] = 0
 
 	// total length
-	binary.BigEndian.PutUint16(b[3:5], uint16(h.TotalLength))
+	binary.BigEndian.PutUint16(b[2:4], uint16(h.TotalLength))
 
 	// identification
-	binary.BigEndian.PutUint16(b[5:7], h.Identification)
+	binary.BigEndian.PutUint16(b[4:6], h.Identification)
 
 	// flags
-	b[7] = 0
+	b[6] = (h.Flags << 5) & 0xe0
 
 	// fragment offset
-	binary.BigEndian.PutUint16(b[8:10], h.FragmentOffset)
+	binary.BigEndian.PutUint16(b[6:8], h.FragmentOffset)
 
 	// TTL
-	b[10] = h.TTL
+	b[8] = h.TTL
 
 	// protocol
-	b[11] = h.Protocol
+	b[9] = h.Protocol
 
 	// header checksum
-	binary.BigEndian.PutUint16(b[12:14], h.HeaderChecksum)
+	binary.BigEndian.PutUint16(b[10:12], h.HeaderChecksum)
 
 	// source IP
-	copy(b[14:18], h.SourceIP.To4())
+	copy(b[12:16], h.SourceIP.To4())
 
 	// destination IP
-	copy(b[18:22], h.DestinationIP.To4())
+	copy(b[16:20], h.DestinationIP.To4())
 
 	return b, nil
 }
@@ -84,9 +85,17 @@ func (h *IPv4Header) Unmarshal(b []byte) error {
 
 	// version
 	h.Version = (b[0] & 0xf0) >> 4
+	if h.Version != 4 {
+		return ErrInvalidIPv4Header
+	}
 
 	// IHL
 	h.IHL = b[0] & 0x0f
+
+	// Enforce IHL value of 5 since not supporting IP options
+	if h.IHL != 5 {
+		return ErrInvalidIPv4Header
+	}
 
 	// type of service
 	h.TypeOfService = b[1]
@@ -106,6 +115,11 @@ func (h *IPv4Header) Unmarshal(b []byte) error {
 	// TTL
 	h.TTL = b[8]
 
+	// Check that the TTL is not zero
+	if h.TTL == 0 {
+		return ErrTTLZero
+	}
+
 	// protocol
 	h.Protocol = b[9]
 
@@ -117,6 +131,11 @@ func (h *IPv4Header) Unmarshal(b []byte) error {
 
 	// destination IP
 	h.DestinationIP = net.IP(b[16:20])
+
+	// Check the checksum of the header
+	if Checksum(b[0:IPv4HeaderSize]) != 0 {
+		return ErrInvalidCheckSum
+	}
 
 	return nil
 }
@@ -134,6 +153,26 @@ func (h *IPv4Header) GetDstIP() net.IP {
 }
 
 func (h *IPv4Header) GetL4Type() netstack.ProtocolType {
-	// TODO: implement this
-	return netstack.ProtocolType(h.Protocol)
+	if h.Protocol == ProtocolICMP {
+		return netstack.ProtocolTypeICMPv4
+	} else if h.Protocol == ProtocolTCP {
+		return netstack.ProtocolTypeTCP
+	} else if h.Protocol == ProtocolUDP {
+		return netstack.ProtocolTypeUDP
+	} else {
+		return netstack.ProtocolTypeUnknown
+	}
+}
+
+func GetIPProtocolType(proto netstack.ProtocolType) uint8 {
+	switch proto {
+	case netstack.ProtocolTypeICMPv4:
+		return ProtocolICMP
+	case netstack.ProtocolTypeTCP:
+		return ProtocolTCP
+	case netstack.ProtocolTypeUDP:
+		return ProtocolUDP
+	default:
+		return 0
+	}
 }

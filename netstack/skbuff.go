@@ -15,6 +15,8 @@ type SkBuff struct {
 	l3_header L3Header
 
 	l4_header L4Header
+
+	socket Socket
 }
 
 func (s *SkBuff) GetBytes() []byte {
@@ -80,6 +82,17 @@ func (skb *SkBuff) GetL4Header() L4Header {
 
 func (skb *SkBuff) SetL4Header(h L4Header) {
 	skb.l4_header = h
+}
+
+/*
+	Socket methods
+*/
+func (skb *SkBuff) GetSocket() Socket {
+	return skb.socket
+}
+
+func (skb *SkBuff) SetSocket(s Socket) {
+	skb.socket = s
 }
 
 /*

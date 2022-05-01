@@ -9,7 +9,6 @@ import (
 )
 
 type LinkLayer struct {
-	netstack.SkBuffReaderWriter
 	netstack.ILayer
 
 	// TODO: support multiple devices

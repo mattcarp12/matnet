@@ -6,6 +6,8 @@ import (
 	"time"
 )
 
+// TODO: Start goroutine to clean up cache periodically
+
 type ARPCacheEntry struct {
 	MAC       net.HardwareAddr
 	timestamp time.Time
