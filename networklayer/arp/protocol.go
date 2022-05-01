@@ -19,10 +19,6 @@ func NewARP() *ARPProtocol {
 	}
 }
 
-func (ap *ARPProtocol) GetType() netstack.ProtocolType {
-	return netstack.ProtocolTypeARP
-}
-
 func (arp *ARPProtocol) HandleRx(skb *netstack.SkBuff) {
 	// Create empty arp header
 	arpHeader := &ARPHeader{}
