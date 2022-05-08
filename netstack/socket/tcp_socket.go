@@ -25,7 +25,7 @@ func (s *tcp_socket) Bind(addr netstack.SockAddr) error {
 }
 
 // Listen...
-func (s *tcp_socket) Listen(backlog int) error {
+func (s *tcp_socket) Listen() error {
 	return nil
 }
 

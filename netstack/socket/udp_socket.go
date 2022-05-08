@@ -14,11 +14,10 @@ type udp_socket struct {
 	netstack.ISocket
 }
 
-func NewUDPSocket(rt netstack.RoutingTable) netstack.Socket {
+func NewUDPSocket() netstack.Socket {
 	s := &udp_socket{
 		ISocket: *netstack.NewSocket(),
 	}
-	s.SetRoutingTable(rt)
 	s.SetType(netstack.SocketTypeDatagram)
 	s.SetState(netstack.SocketStateClosed)
 	return s
@@ -30,7 +29,7 @@ func (s *udp_socket) Bind(addr netstack.SockAddr) error {
 }
 
 // Listen...
-func (s *udp_socket) Listen(backlog int) error {
+func (s *udp_socket) Listen() error {
 	return nil
 }
 
@@ -65,16 +64,11 @@ func (s *udp_socket) ReadFrom(b []byte, addr *netstack.SockAddr) (int, error) {
 }
 
 // WriteTo...
-func (sock *udp_socket) WriteTo(b []byte, destAddr netstack.SockAddr) (int, error) {
+func (sock *udp_socket) WriteTo(b []byte, destAddr netstack.SockAddr, srcAddr netstack.SockAddr) (int, error) {
 	// Set socket destination address
 	sock.SetDestinationAddress(destAddr)
 
-	/// Get route from routing table
-	route := sock.GetRoutingTable().Lookup(destAddr.GetIP())
-
 	// Set socket source address
-	srcAddr := netstack.SockAddr{}
-	srcAddr.IP = route.Iface.GetNetworkAddr()
 	sock.SetSourceAddress(srcAddr)
 
 	// Create new skbuff
@@ -84,7 +78,7 @@ func (sock *udp_socket) WriteTo(b []byte, destAddr netstack.SockAddr) (int, erro
 	skb.SetSocket(sock)
 
 	// Set skbuff route
-	skb.SetRoute(route)
+	// skb.SetRoute(route)
 
 	// Set skbuff type to UDP
 	skb.SetType(netstack.ProtocolTypeUDP)

@@ -3,13 +3,19 @@ package api
 import (
 	"bufio"
 	"encoding/json"
+	"log"
 	"net"
+	"os"
 
-	"github.com/mattcarp12/go-net/netstack/ipc"
+	"github.com/mattcarp12/go-net/netstack"
 )
 
 var ipc_conn net.Conn
 var ipc_reader *bufio.Reader
+var ipc_conn_addr string
+var pid int
+
+const ipc_addr = "/tmp/gonet.sock"
 
 func init() {
 	// connect to the server
@@ -17,8 +23,6 @@ func init() {
 		panic(err)
 	}
 }
-
-const ipc_addr = "/tmp/gonet.sock"
 
 // function to connect to client
 func ipc_connect() error {
@@ -34,15 +38,28 @@ func ipc_connect() error {
 	// Create a reader
 	ipc_reader = bufio.NewReader(ipc_conn)
 
+	// Save process ID
+	pid = os.Getpid()
+
+	// Save the connection address
+	ipc_conn_addr = conn.LocalAddr().String()
+
 	return nil
 }
 
-func ipc_send(cmd ipc.Command, msg interface{}) error {
+func ipc_send(req netstack.SockSyscallRequest) error {
 	// Marshal the message into a byte array
-	data := ipc.MakeMsg(cmd, msg)
+	msg, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+
+	// append newline
+	msg = append(msg, '\n')
 
 	// Send the message
-	_, err := ipc_conn.Write(data)
+	log.Printf("Sending message: %s", msg)
+	_, err = ipc_conn.Write(msg)
 	if err != nil {
 		return err
 	}
@@ -50,19 +67,27 @@ func ipc_send(cmd ipc.Command, msg interface{}) error {
 	return nil
 }
 
-func ipc_recv(resp interface{}) error {
+func ipc_recv(resp *netstack.SockSyscallResponse) error {
 	// read the respBytes
 	respBytes, err := ipc_reader.ReadBytes('\n')
 	if err != nil {
 		return err
 	}
 
-	// parse into IpcMsg
-	msg, err := ipc.ParseMsg(respBytes)
-	if err != nil {
-		return err
+	// unmarshal the response
+	return json.Unmarshal(respBytes, resp)
+}
+
+func ipc_send_recv(req netstack.SockSyscallRequest) (netstack.SockSyscallResponse, error) {
+	var resp netstack.SockSyscallResponse
+
+	if err := ipc_send(req); err != nil {
+		return resp, err
 	}
 
-	// unmarshal the response
-	return json.Unmarshal(msg.Data, resp)
+	if err := ipc_recv(&resp); err != nil {
+		return resp, err
+	}
+
+	return resp, nil
 }

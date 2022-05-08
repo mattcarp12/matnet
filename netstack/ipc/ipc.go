@@ -6,12 +6,26 @@ import (
 	"net"
 	"os"
 
+	"github.com/google/uuid"
 	"github.com/mattcarp12/go-net/netstack"
 )
 
 type IPC struct {
-	socket_manager netstack.SocketManager
-	server         *IPCServer
+	socket_layer netstack.SocketLayer
+	server       *IPCServer
+	conn_map     map[string]*ipc_conn
+	rx_chan      chan netstack.SockSyscallResponse
+}
+
+type ipc_conn struct {
+	id           string
+	conn         net.Conn
+	socket_layer netstack.SocketLayer
+	rx_chan      chan netstack.SockSyscallResponse
+}
+
+func (ic *ipc_conn) get_response() netstack.SockSyscallResponse {
+	return <-ic.rx_chan
 }
 
 // IPCServer ...
@@ -42,7 +56,39 @@ func (ipc *IPC) serve() {
 			continue
 		}
 
-		go ipc.handle_connection(conn)
+		// Generate unique connection ID
+		conn_id := uuid.New().String()
+
+		// Create new connection
+		iconn := &ipc_conn{
+			id:           conn_id,
+			conn:         conn,
+			socket_layer: ipc.socket_layer,
+			rx_chan:      make(chan netstack.SockSyscallResponse),
+		}
+
+		// Add to connection map
+		ipc.conn_map[iconn.id] = iconn
+
+		// Start goroutine to handle connection
+		go iconn.handle_connection()
+	}
+}
+
+// SyscallResponseLoop ...
+func (ipc *IPC) SyscallResponseLoop() {
+	for {
+		// get message from rx_chan
+		msg := <-ipc.rx_chan
+		log.Printf("Received message: %+v", msg)
+
+		// get connection from map
+		if conn, ok := ipc.conn_map[msg.ConnID]; ok {
+			// send message to connection
+			conn.rx_chan <- msg
+		} else {
+			log.Printf("Connection not found: %s", msg.ConnID)
+		}
 	}
 }
 
@@ -50,55 +96,51 @@ func (server *IPCServer) Wait() {
 	<-server.done
 }
 
-func (ipc *IPC) handle_connection(conn net.Conn) {
-	reader := bufio.NewReader(conn)
+// handle_connection ...
+// this is the goroutine that will handle the connection
+func (iconn *ipc_conn) handle_connection() {
+	reader := bufio.NewReader(iconn.conn)
 	for {
 		// Read request
-		bytes, err := reader.ReadBytes('\n')
+		var req netstack.SockSyscallRequest
+		err := req.Read(reader)
 		if err != nil {
-			log.Printf("Error reading bytes: %s", err)
-			break
-			// TODO: Handle error somehow
+			log.Printf("Error reading request: %s", err)
+			iconn.conn.Close()
+			return
 		}
 
-		// Parse message
-		msg, err := ParseMsg(bytes)
-		if err != nil {
-			log.Printf("Error parsing message: %s", err)
-			continue
-		}
+		// Set the connection ID
+		req.ConnID = iconn.id
 
-		var res interface{}
+		// Send request to socket layer
+		iconn.socket_layer.SendSyscall(req)
 
-		// Handle command
-		switch msg.Command {
-		case SOCKET:
-			res = ipc.socket(msg.Data)
-		case CONNECT:
-			res = ipc.connect(msg.Data)
-		case WRITETO:
-			res = ipc.writeto(msg.Data)
-		default:
-			log.Printf("Unknown command: %s", msg.Command)
+		// Wait for response
+		resp := iconn.get_response()
+		log.Printf("Received response: %+v", resp)
 
-		}
-
-		// Marshal the response into a byte array
-		data := MakeMsg(msg.Command, res)
-
-		// Send response
-		log.Printf("Sending response: %+v", res)
-		conn.Write(data)
+		// Write response
+		rawResp := append(resp.Bytes(), '\n')
+		iconn.conn.Write(rawResp)
 	}
 }
 
-func Init(sm netstack.SocketManager) *IPC {
+func Init(sl netstack.SocketLayer) *IPC {
 	os.Remove(ipc_addr)
 	ipc := &IPC{
-		sm,
+		sl,
 		&IPCServer{
 			make(chan bool),
-		}}
+		},
+		make(map[string]*ipc_conn),
+		make(chan netstack.SockSyscallResponse),
+	}
+
+	// Set SocketLayer rx_chan so it can sent messages to the IPC server
+	sl.SetRxChan(ipc.rx_chan)
+
 	go ipc.serve()
+	go ipc.SyscallResponseLoop()
 	return ipc
 }

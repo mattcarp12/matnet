@@ -1,22 +1,106 @@
 package netstack
 
 import (
+	"bufio"
+	"encoding/json"
 	"errors"
+	"log"
 	"net"
 	"strconv"
 
 	"github.com/google/uuid"
 )
 
-/*
-	Socket objects represent a network endpoint that can be connected to
-	or listened on.
-*/
+/******************************************************************************
+	Socket Layer - Interface between the network stack and the application
+******************************************************************************/
+type SocketLayer interface {
+	// Send a syscall to the socket layer
+	SendSyscall(syscall SockSyscallRequest)
+	// Set the socket layer's rx_chan to send responses to the IPC layer
+	SetRxChan(chan SockSyscallResponse)
+}
 
-// Individial socket type implementations must define their own SocketOperations methods
+/****************************************************************************
+	SockSyscall -
+	The socket layer receives syscalls from the IPC layer and dispatches
+	them to the appropriate socket. The socket layer then sends the response
+	to the IPC layer.
+****************************************************************************/
+
+type SockSyscallType int
+
+const (
+	SyscallSocket = iota
+	SyscallBind
+	SyscallListen
+	SyscallAccept
+	SyscallConnect
+	SyscallClose
+	SyscallRead
+	SyscallWrite
+	SyscallReadFrom
+	SyscallWriteTo
+)
+
+type SockSyscallRequest struct {
+	ConnID      string
+	SyscallType SockSyscallType
+	SockType    SocketType
+	SockID      SockID
+	Addr        SockAddr
+	Flags       int
+	Data        []byte
+}
+
+type SockSyscallResponse struct {
+	ConnID       string
+	SockID       SockID
+	Err          error
+	Data         []byte
+	BytesWritten int
+}
+
+func (req SockSyscallRequest) MakeResponse() SockSyscallResponse {
+	var resp SockSyscallResponse
+	resp.ConnID = req.ConnID
+	resp.SockID = req.SockID
+	return resp
+}
+
+func (req *SockSyscallRequest) Read(reader *bufio.Reader) error {
+	log.Printf("Reading syscall request")
+	// read data from reader
+	buf, err := reader.ReadBytes('\n')
+	if err != nil {
+		return err
+	}
+	// unmarshal data
+	err = json.Unmarshal(buf, req)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (resp SockSyscallResponse) Bytes() []byte {
+	buf, _ := json.Marshal(resp)
+	return buf
+}
+
+/****************************************************************************
+	Socket -
+	Represents an individual socket in the netstack.
+****************************************************************************/
+type Socket interface {
+	SocketOperations
+	SocketMetaOps
+	SocketSkbOps
+}
+
 type SocketOperations interface {
 	Bind(addr SockAddr) error
-	Listen(backlog int) error
+	Listen() error
 	Accept() (net.Conn, error)
 	Connect(addr SockAddr) error
 	Close() error
@@ -51,12 +135,7 @@ type SocketSkbOps interface {
 	SendSkb(skb *SkBuff)
 }
 
-type Socket interface {
-	SocketOperations
-	SocketMetaOps
-	SocketSkbOps
-}
-
+// Each socket is identified by a globally unique ID.
 type SockID string
 
 var ErrInvalidSocketID = errors.New("Invalid socket ID")
@@ -87,10 +166,10 @@ const (
 	SocketStateClosed
 )
 
-/*
+/****************************************************************************
 	SockAddr -- generic structure for network addresses
 	Can hold either an IPv4 or IPv6 address
-*/
+****************************************************************************/
 type SockAddr struct {
 	Port uint16
 	IP   net.IP
@@ -128,9 +207,10 @@ func (s SockAddr) GetType() AddressType {
 	}
 }
 
-/*
+/****************************************************************************
 	ISocket - helper struct for Socket implementations
-*/
+	Implements common methods for all sockets
+****************************************************************************/
 
 type ISocket struct {
 	// Socket type
@@ -150,9 +230,6 @@ type ISocket struct {
 
 	// Socket ID
 	ID SockID
-
-	// Routing table
-	RoutingTable RoutingTable
 }
 
 func NewSocket() *ISocket {
@@ -207,30 +284,10 @@ func (s *ISocket) SetID(id SockID) {
 	s.ID = id
 }
 
-func (s *ISocket) GetRoutingTable() RoutingTable {
-	return s.RoutingTable
-}
-
-func (s *ISocket) SetRoutingTable(rt RoutingTable) {
-	s.RoutingTable = rt
-}
-
 func (s *ISocket) RecvSkb() *SkBuff {
 	return <-s.GetProtocol().RxChan()
 }
 
 func (s *ISocket) SendSkb(skb *SkBuff) {
 	s.GetProtocol().TxChan() <- skb
-}
-
-/*
-	Socket Manager - Interface between the network stack and the application
-*/
-
-type SocketManager interface {
-	// Create a new socket
-	CreateSocket(SocketType) (Socket, error)
-
-	// Get a socket by ID
-	GetSocket(SockID) (Socket, error)
 }

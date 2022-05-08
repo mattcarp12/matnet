@@ -9,7 +9,7 @@ import (
 
 func main() {
 	// Create a new socket
-	sock, err := s.Socket(s.AF_INET, s.SOCK_DGRAM, 0)
+	sock, err := s.Socket(s.SOCK_DGRAM)
 	if err != nil {
 		panic(err)
 	}
@@ -24,5 +24,14 @@ func main() {
 
 	// Send to the socket
 	err = s.WriteTo(sock, []byte("Hello World"), 0, sock_addr)
+	if err != nil {
+		panic(err)
+	}
+
+	// Read response from the socket
+	buf := make([]byte, 1024)
+	n, err := s.Read(sock, &buf)
+
+	fmt.Printf("Received %d bytes\n", n)
 
 }

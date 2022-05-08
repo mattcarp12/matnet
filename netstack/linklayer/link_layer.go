@@ -33,7 +33,7 @@ func (ll *LinkLayer) SetNeighborProtocol(neigh netstack.NeighborProtocol) {
 	eth.(*ethernet.Ethernet).SetNeighborProtocol(neigh)
 }
 
-func Init() *LinkLayer {
+func Init() (*LinkLayer, netstack.RoutingTable) {
 	// Create network devices
 	tapConfig := IfaceConfig{
 		Name:    "tap0",
@@ -69,5 +69,11 @@ func Init() *LinkLayer {
 	// Start link layer goroutines
 	netstack.StartLayerDispatchLoops(link_layer)
 
-	return link_layer
+	// Make routing table
+	rt := netstack.NewRoutingTable()
+	tap_route := rt.AddConnectedRoute(tap)
+	rt.SetDefaultRoute(*tap_route)
+	rt.AddConnectedRoute(loop)
+
+	return link_layer, rt
 }

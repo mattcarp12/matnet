@@ -25,7 +25,7 @@ func (s *raw_socket) Bind(addr netstack.SockAddr) error {
 }
 
 // Listen...
-func (s *raw_socket) Listen(backlog int) error {
+func (s *raw_socket) Listen() error {
 	return nil
 }
 
@@ -33,7 +33,6 @@ func (s *raw_socket) Listen(backlog int) error {
 func (s *raw_socket) Accept() (net.Conn, error) {
 	return nil, nil
 }
-
 
 // Connect...
 func (s *raw_socket) Connect(addr netstack.SockAddr) error {

@@ -102,6 +102,5 @@ func TxDispatch(layer Layer) {
 
 		// Send skb to protocol
 		protocol.TxChan() <- skb
-
 	}
 }

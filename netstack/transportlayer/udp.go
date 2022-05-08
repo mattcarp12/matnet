@@ -81,6 +81,7 @@ type UdpProtocol struct {
 func NewUDP() *UdpProtocol {
 	udp := &UdpProtocol{
 		IProtocol: netstack.NewIProtocol(netstack.ProtocolTypeUDP),
+		port_manager: netstack.NewPortManager(),
 	}
 	return udp
 }

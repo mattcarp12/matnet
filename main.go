@@ -13,7 +13,7 @@ var done = make(chan bool)
 func main() {
 
 	// Initialize the link layer
-	link := linklayer.Init()
+	link, routing_table := linklayer.Init()
 
 	// Initialize the network layer
 	net := networklayer.Init(link)
@@ -22,10 +22,10 @@ func main() {
 	transport := transportlayer.Init(net)
 
 	// Initialize the socket manager
-	socket_manager := socket.NewSocketManager(transport)
+	socket_layer := socket.Init(transport, routing_table)
 
 	// Initialize the IPC server
-	ipc.Init(socket_manager)
+	ipc.Init(socket_layer)
 
 	<-done
 }
