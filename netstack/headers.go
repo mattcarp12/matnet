@@ -3,7 +3,7 @@ package netstack
 import "net"
 
 type Header interface {
-	Marshal() ([]byte, error)
+	Marshal() []byte
 	Unmarshal([]byte) error
 	GetType() ProtocolType
 }

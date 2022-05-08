@@ -17,6 +17,10 @@ type SkBuff struct {
 	l4_header L4Header
 
 	socket Socket
+
+	route route
+
+	resp chan SkbResponse
 }
 
 func (s *SkBuff) GetBytes() []byte {
@@ -45,12 +49,24 @@ func (skb *SkBuff) StripBytes(n int) {
 	skb.Data = skb.Data[n:]
 }
 
+func (skb *SkBuff) GetRoute() route {
+	return skb.route
+}
+
+func (skb *SkBuff) SetRoute(r route) {
+	skb.route = r
+}
+
 func (skb *SkBuff) GetNetworkInterface() NetworkInterface {
 	return skb.iface
 }
 
 func (skb *SkBuff) SetNetworkInterface(iface NetworkInterface) {
 	skb.iface = iface
+}
+
+func (skb *SkBuff) Resp() SkbResponse {
+	return <-skb.resp
 }
 
 /*
@@ -130,4 +146,52 @@ func (skb_channels SkBuffChannels) RxChan() chan *SkBuff {
 
 func (skb_channels SkBuffChannels) TxChan() chan *SkBuff {
 	return skb_channels.tx_chan
+}
+
+/*
+	SkbResponse is used to return a response from the network stack about the
+	status of a packet.
+*/
+
+type SkbResponse struct {
+	err           error
+	status        int
+	bytes_read    int
+	bytes_written int
+}
+
+func (r SkbResponse) Error() error {
+	return r.err
+}
+
+func (r SkbResponse) Status() int {
+	return r.status
+}
+
+func (r SkbResponse) BytesRead() int {
+	return r.bytes_read
+}
+
+func (r SkbResponse) BytesWritten() int {
+	return r.bytes_written
+}
+
+func SkbErrorResp(err error) SkbResponse {
+	return SkbResponse{
+		err: err,
+	}
+}
+
+func SkbWriteResp(bytes_written int) SkbResponse {
+	return SkbResponse{
+		bytes_written: bytes_written,
+	}
+}
+
+func (skb *SkBuff) Error(err error) {
+	skb.resp <- SkbErrorResp(err)
+}
+
+func (skb *SkBuff) TxSuccess(bytes_written int) {
+	skb.resp <- SkbWriteResp(bytes_written)
 }

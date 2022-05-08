@@ -60,7 +60,7 @@ func (layer *ILayer) SetPrevLayer(prevLayer Layer) {
 }
 
 /*
-	A layer has two goroutines that run in parallel:
+	A layer has two goroutines that run concurrently:
 		1. RxDispatch - reads SkBuffs from the layer's rx_chan and dispatches them to the appropriate protocol
 		2. TxDispatch - reads SkBuffs from the layer's tx_chan and dispatches them to the appropriate protocol
 */

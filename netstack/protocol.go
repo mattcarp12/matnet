@@ -1,5 +1,7 @@
 package netstack
 
+import "errors"
+
 /*
 	Protocol represents a single network protocol
 	A protocol is responsible for receiving packets from the
@@ -19,6 +21,24 @@ package netstack
 			(e.g. the EtherType for L2 or Protocol for L3)
 		8. Send the skb to the next layer using RxUp()
 */
+
+type ProtocolType uint16
+
+const (
+	ProtocolTypeEthernet ProtocolType = iota
+	ProtocolTypeIPv4
+	ProtocolTypeICMPv4
+	ProtocolTypeARP
+	ProtocolTypeIPv6
+	ProtocolTypeICMPv6
+	ProtocolTypeTCP
+	ProtocolTypeUDP
+	ProtocolTypeRaw
+	ProtocolTypeUnknown ProtocolType = 0xFFFF
+)
+
+var ErrProtocolNotFound = errors.New("protocol not found")
+
 type Protocol interface {
 	GetType() ProtocolType
 	GetLayer() Layer
