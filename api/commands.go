@@ -1,8 +1,6 @@
 package api
 
-import (
-	"github.com/mattcarp12/go-net/netstack"
-)
+import "github.com/mattcarp12/go-net/netstack"
 
 // Socket function creates a new socket
 func Socket(sock_type netstack.SocketType) (netstack.SockID, error) {
@@ -36,6 +34,8 @@ func WriteTo(sock netstack.SockID, data []byte, flags int, dest SockAddr) error 
 	if err != nil {
 		return err
 	}
+
+	log.Printf("Response: %+v\n", resp)
 
 	// TODO: Return the number of bytes written
 	return resp.Err

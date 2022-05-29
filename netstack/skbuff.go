@@ -1,5 +1,12 @@
 package netstack
 
+import (
+	"log"
+	"os"
+)
+
+var skb_log = log.New(os.Stdout, "[SKB] ", log.Ldate|log.Lmicroseconds|log.Lshortfile)
+
 /*
 	SkBuff is the struct that represents a packet as it moves through the stack.
 */
@@ -30,6 +37,7 @@ func (s *SkBuff) GetBytes() []byte {
 func NewSkBuff(data []byte) *SkBuff {
 	return &SkBuff{
 		Data: data,
+		resp: make(chan SkbResponse),
 	}
 }
 
@@ -66,7 +74,10 @@ func (skb *SkBuff) SetNetworkInterface(iface NetworkInterface) {
 }
 
 func (skb *SkBuff) Resp() SkbResponse {
-	return <-skb.resp
+	skb_log.Printf("Called Resp")
+	resp := <-skb.resp
+	skb_log.Printf("Resp: %+v", resp)
+	return resp
 }
 
 /*
@@ -193,5 +204,6 @@ func (skb *SkBuff) Error(err error) {
 }
 
 func (skb *SkBuff) TxSuccess(bytes_written int) {
+	skb_log.Printf("Called TxSuccess with %d bytes written", bytes_written)
 	skb.resp <- SkbWriteResp(bytes_written)
 }

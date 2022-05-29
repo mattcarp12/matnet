@@ -164,15 +164,15 @@ func (h *IPv4Header) GetL4Type() netstack.ProtocolType {
 	}
 }
 
-func GetIPProtocolType(proto netstack.ProtocolType) uint8 {
-	switch proto {
+func GetIPProtocolType(skb *netstack.SkBuff) (uint8, error) {
+	switch skb.GetL4Header().GetType() {
 	case netstack.ProtocolTypeICMPv4:
-		return ProtocolICMP
+		return ProtocolICMP, nil
 	case netstack.ProtocolTypeTCP:
-		return ProtocolTCP
+		return ProtocolTCP, nil
 	case netstack.ProtocolTypeUDP:
-		return ProtocolUDP
+		return ProtocolUDP, nil
 	default:
-		return 0
+		return 0, errors.New("unknown protocol")
 	}
 }

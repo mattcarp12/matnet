@@ -86,16 +86,16 @@ func (arpHeader *ARPHeader) Marshal() []byte {
 	binary.BigEndian.PutUint16(b[6:8], uint16(arpHeader.OpCode))
 
 	// Source HW address
-	copy(b[8:8+int(arpHeader.HardwareSize)], arpHeader.SourceHWAddr)
+	copy(b[8:8+len(arpHeader.SourceHWAddr)], arpHeader.SourceHWAddr)
 
 	// Source IP address
-	copy(b[8+int(arpHeader.HardwareSize):8+int(arpHeader.HardwareSize)+int(arpHeader.ProtocolSize)], arpHeader.SourceIPAddr)
+	copy(b[8+len(arpHeader.SourceHWAddr):8+len(arpHeader.SourceHWAddr)+len(arpHeader.SourceIPAddr)], arpHeader.SourceIPAddr)
 
 	// Target HW address
-	copy(b[8+int(arpHeader.HardwareSize)+int(arpHeader.ProtocolSize):8+int(arpHeader.HardwareSize)*2+int(arpHeader.ProtocolSize)], arpHeader.TargetHWAddr)
+	copy(b[8+len(arpHeader.SourceHWAddr)+len(arpHeader.SourceIPAddr):8+len(arpHeader.SourceHWAddr)+len(arpHeader.SourceIPAddr)+len(arpHeader.TargetHWAddr)], arpHeader.TargetHWAddr)
 
 	// Target IP address
-	copy(b[8+int(arpHeader.HardwareSize)*2+int(arpHeader.ProtocolSize):8+int(arpHeader.HardwareSize)*2+int(arpHeader.ProtocolSize)*2], arpHeader.TargetIPAddr)
+	copy(b[8+len(arpHeader.SourceHWAddr)+len(arpHeader.SourceIPAddr)+len(arpHeader.TargetHWAddr):8+len(arpHeader.SourceHWAddr)+len(arpHeader.SourceIPAddr)+len(arpHeader.TargetHWAddr)+len(arpHeader.TargetIPAddr)], arpHeader.TargetIPAddr)
 
 	return b
 }

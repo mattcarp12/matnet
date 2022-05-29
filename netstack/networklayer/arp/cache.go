@@ -48,3 +48,10 @@ func (c *ARPCache) Lookup(ip net.IP) (net.HardwareAddr, error) {
 
 	return nil, ErrArpCacheMiss
 }
+
+func (c *ARPCache) Put(ip net.IP, mac net.HardwareAddr) {
+	(*c)[ip.String()] = ARPCacheEntry{
+		MAC:       mac,
+		timestamp: time.Now(),
+	}
+}

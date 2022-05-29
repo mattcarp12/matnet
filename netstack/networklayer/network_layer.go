@@ -12,6 +12,8 @@ type NetworkLayer struct {
 	netstack.ILayer
 }
 
+
+
 func Init(link_layer *linklayer.LinkLayer) *NetworkLayer {
 	network_layer := &NetworkLayer{}
 	network_layer.SkBuffReaderWriter = netstack.NewSkBuffChannels()

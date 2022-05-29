@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"encoding/json"
 	"errors"
-	"log"
 	"net"
 	"strconv"
 
@@ -28,19 +27,19 @@ type SocketLayer interface {
 	to the IPC layer.
 ****************************************************************************/
 
-type SockSyscallType int
+type SockSyscallType string
 
 const (
-	SyscallSocket = iota
-	SyscallBind
-	SyscallListen
-	SyscallAccept
-	SyscallConnect
-	SyscallClose
-	SyscallRead
-	SyscallWrite
-	SyscallReadFrom
-	SyscallWriteTo
+	SyscallSocket   SockSyscallType = "socket"
+	SyscallBind     SockSyscallType = "bind"
+	SyscallListen   SockSyscallType = "listen"
+	SyscallAccept   SockSyscallType = "accept"
+	SyscallConnect  SockSyscallType = "connect"
+	SyscallClose    SockSyscallType = "close"
+	SyscallRead     SockSyscallType = "read"
+	SyscallWrite    SockSyscallType = "write"
+	SyscallReadFrom SockSyscallType = "readfrom"
+	SyscallWriteTo  SockSyscallType = "writeto"
 )
 
 type SockSyscallRequest struct {
@@ -56,7 +55,8 @@ type SockSyscallRequest struct {
 type SockSyscallResponse struct {
 	ConnID       string
 	SockID       SockID
-	Err          error
+	Err          error `json:"-"`
+	ErrMsg       string
 	Data         []byte
 	BytesWritten int
 }
@@ -69,7 +69,6 @@ func (req SockSyscallRequest) MakeResponse() SockSyscallResponse {
 }
 
 func (req *SockSyscallRequest) Read(reader *bufio.Reader) error {
-	log.Printf("Reading syscall request")
 	// read data from reader
 	buf, err := reader.ReadBytes('\n')
 	if err != nil {
@@ -84,6 +83,9 @@ func (req *SockSyscallRequest) Read(reader *bufio.Reader) error {
 }
 
 func (resp SockSyscallResponse) Bytes() []byte {
+	if resp.Err != nil {
+		resp.ErrMsg = resp.Err.Error()
+	}
 	buf, _ := json.Marshal(resp)
 	return buf
 }
@@ -128,6 +130,9 @@ type SocketMetaOps interface {
 
 	GetID() SockID
 	SetID(id SockID)
+
+	GetRoute() *route
+	SetRoute(r *route)
 }
 
 type SocketSkbOps interface {
@@ -230,6 +235,9 @@ type ISocket struct {
 
 	// Socket ID
 	ID SockID
+
+	// Route
+	Route *route
 }
 
 func NewSocket() *ISocket {
@@ -290,4 +298,12 @@ func (s *ISocket) RecvSkb() *SkBuff {
 
 func (s *ISocket) SendSkb(skb *SkBuff) {
 	s.GetProtocol().TxChan() <- skb
+}
+
+func (s *ISocket) GetRoute() *route {
+	return s.Route
+}
+
+func (s *ISocket) SetRoute(route *route) {
+	s.Route = route
 }

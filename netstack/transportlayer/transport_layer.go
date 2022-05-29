@@ -1,9 +1,14 @@
 package transportlayer
 
 import (
+	logging "log"
+	"os"
+
 	"github.com/mattcarp12/go-net/netstack"
 	"github.com/mattcarp12/go-net/netstack/networklayer"
 )
+
+var log = logging.New(os.Stdout, "[Transport Layer] ", logging.Ldate|logging.Lmicroseconds|logging.Lshortfile)
 
 type TransportLayer struct {
 	netstack.ILayer

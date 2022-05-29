@@ -1,6 +1,7 @@
 package ethernet
 
 import (
+	"encoding/binary"
 	"errors"
 	"net"
 
@@ -45,8 +46,7 @@ func (eh *EthernetHeader) Marshal() []byte {
 	d := make([]byte, 14)
 	copy(d[0:6], eh.addr.DstAddr)
 	copy(d[6:12], eh.addr.SrcAddr)
-	d[12] = byte(eh.EtherType >> 8)
-	d[13] = byte(eh.EtherType)
+	binary.BigEndian.PutUint16(d[12:14], eh.EtherType)
 	return d
 }
 

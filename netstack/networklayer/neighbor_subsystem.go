@@ -27,6 +27,8 @@ func (neigh *neighborSubsystem) Resolve(ip net.IP) (net.HardwareAddr, error) {
 	}
 }
 
+// SendRequest sends an ARP request to the specified IP address
+// This function should be called as a goroutine
 func (neigh *neighborSubsystem) SendRequest(ip net.IP, iface netstack.NetworkInterface) {
 	if ip.To4() != nil {
 		neigh.arp.ARPRequest(ip, iface)

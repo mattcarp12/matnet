@@ -34,7 +34,6 @@ func (s *tcp_socket) Accept() (net.Conn, error) {
 	return nil, nil
 }
 
-
 // Connect...
 func (s *tcp_socket) Connect(addr netstack.SockAddr) error {
 	return nil

@@ -1,7 +1,6 @@
 package linklayer
 
 import (
-	"log"
 	"net"
 
 	"github.com/mattcarp12/go-net/netstack"

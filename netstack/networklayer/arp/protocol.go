@@ -91,6 +91,12 @@ func (arp *ARPProtocol) ARPReply(inArpHeader *ARPHeader, inSkb *netstack.SkBuff)
 
 	// Send the arp reply down to link layer
 	arp.TxDown(arpReplySkb)
+
+	// Get the skb response
+	skbResp := arpReplySkb.Resp()
+
+	// log the response
+	log.Printf("ARP Reply SkbResponse is: %+v", skbResp)
 }
 
 func (arp *ARPProtocol) ARPRequest(ip net.IP, iface netstack.NetworkInterface) {
@@ -102,9 +108,14 @@ func (arp *ARPProtocol) ARPRequest(ip net.IP, iface netstack.NetworkInterface) {
 	arpRequestHeader.ProtocolSize = 4
 	arpRequestHeader.OpCode = ARP_REQUEST
 	arpRequestHeader.SourceHWAddr = iface.GetHWAddr()
-	arpRequestHeader.SourceIPAddr = iface.GetNetworkAddr()
-	arpRequestHeader.TargetIPAddr = ip
+	arpRequestHeader.SourceIPAddr = iface.GetNetworkAddr().To4()
+	arpRequestHeader.TargetIPAddr = ip.To4()
 	arpRequestHeader.TargetHWAddr = net.HardwareAddr{0xff, 0xff, 0xff, 0xff, 0xff, 0xff} // Broadcast address
+
+	// Since we're making an ARP request for the target IP, we need to
+	// set the target hardware address to the broadcast address (ff:ff:ff:ff:ff:ff)
+	// in the arp cache.
+	arp.cache.Put(ip, net.HardwareAddr{0xff, 0xff, 0xff, 0xff, 0xff, 0xff})
 
 	// Create a new arp skb
 	rawArpHeader := arpRequestHeader.Marshal()
@@ -122,6 +133,12 @@ func (arp *ARPProtocol) ARPRequest(ip net.IP, iface netstack.NetworkInterface) {
 
 	// Send the arp request down to link layer
 	arp.TxDown(arpSkb)
+
+	// Get the skb response
+	skbResp := arpSkb.Resp()
+
+	// log the response
+	log.Printf("ARP Request SkbResponse is: %+v", skbResp)
 }
 
 // This is not used, use ARPRequest instead

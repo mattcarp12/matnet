@@ -64,12 +64,9 @@ func (s *udp_socket) ReadFrom(b []byte, addr *netstack.SockAddr) (int, error) {
 }
 
 // WriteTo...
-func (sock *udp_socket) WriteTo(b []byte, destAddr netstack.SockAddr, srcAddr netstack.SockAddr) (int, error) {
+func (sock *udp_socket) WriteTo(b []byte, destAddr netstack.SockAddr) (int, error) {
 	// Set socket destination address
 	sock.SetDestinationAddress(destAddr)
-
-	// Set socket source address
-	sock.SetSourceAddress(srcAddr)
 
 	// Create new skbuff
 	skb := netstack.NewSkBuff(b)
@@ -77,8 +74,8 @@ func (sock *udp_socket) WriteTo(b []byte, destAddr netstack.SockAddr, srcAddr ne
 	// Set socket on skbuff
 	skb.SetSocket(sock)
 
-	// Set skbuff route
-	// skb.SetRoute(route)
+	// Set the skbuff interface
+	skb.SetNetworkInterface(sock.GetRoute().Iface)
 
 	// Set skbuff type to UDP
 	skb.SetType(netstack.ProtocolTypeUDP)
@@ -86,8 +83,10 @@ func (sock *udp_socket) WriteTo(b []byte, destAddr netstack.SockAddr, srcAddr ne
 	// Send packet to UDP protocol
 	sock.SendSkb(skb)
 
-	// Get response from network stack
+	// Wait for response from network stack
 	resp := skb.Resp()
+
+	log.Printf("UDP Socket WriteTo Response: %+v", resp)
 
 	return resp.BytesWritten(), resp.Error()
 }

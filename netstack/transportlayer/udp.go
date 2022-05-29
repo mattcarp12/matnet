@@ -2,7 +2,6 @@ package transportlayer
 
 import (
 	"encoding/binary"
-	"log"
 	"net"
 
 	"github.com/mattcarp12/go-net/netstack"
@@ -80,7 +79,7 @@ type UdpProtocol struct {
 
 func NewUDP() *UdpProtocol {
 	udp := &UdpProtocol{
-		IProtocol: netstack.NewIProtocol(netstack.ProtocolTypeUDP),
+		IProtocol:    netstack.NewIProtocol(netstack.ProtocolTypeUDP),
 		port_manager: netstack.NewPortManager(),
 	}
 	return udp
@@ -103,6 +102,7 @@ func (udp *UdpProtocol) HandleTx(skb *netstack.SkBuff) {
 		return
 	} else {
 		skb.SetL4Header(h)
+		skb.PrependBytes(h.Marshal())
 	}
 
 	// Passing to the network layer, so set the skb type

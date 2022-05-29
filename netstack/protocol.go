@@ -1,6 +1,8 @@
 package netstack
 
-import "errors"
+import (
+	"errors"
+)
 
 /*
 	Protocol represents a single network protocol

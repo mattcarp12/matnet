@@ -1,10 +1,13 @@
 package ethernet
 
 import (
-	"log"
+	logging "log"
+	"os"
 
 	"github.com/mattcarp12/go-net/netstack"
 )
+
+var log = logging.New(os.Stdout, "[Ethernet] ", logging.Ldate|logging.Lmicroseconds|logging.Lshortfile)
 
 type Ethernet struct {
 	netstack.IProtocol
@@ -60,6 +63,7 @@ func (eth *Ethernet) HandleRx(skb *netstack.SkBuff) {
 
 // HandleTx is called when a skbuff from the network layer is ready to be sent
 func (eth *Ethernet) HandleTx(skb *netstack.SkBuff) {
+	log.Println("Ethernet: HandleTx")
 	/*
 		If link layer header is already set, there is nothing to do
 		so just pass the skbuff to network interface
@@ -84,8 +88,14 @@ func (eth *Ethernet) HandleTx(skb *netstack.SkBuff) {
 	destHWAddr, err := eth.arp.Resolve(skb.GetL3Header().GetDstIP())
 	if err != nil {
 		log.Printf("Error resolving destination hardware address: %v", err)
+
 		// If we can't get the hardware address, send an arp request
-		eth.arp.SendRequest(skb.GetL3Header().GetDstIP(), skb.GetNetworkInterface())
+		go eth.arp.SendRequest(skb.GetL3Header().GetDstIP(), skb.GetNetworkInterface())
+
+		// Make sure to send response for the dropped skb
+		// TODO: Make request cache to handle requests once the arp response is received
+		skb.Error(err)
+
 		return
 	}
 
@@ -98,6 +108,9 @@ func (eth *Ethernet) HandleTx(skb *netstack.SkBuff) {
 		log.Printf("Error getting EtherType: %v", err)
 		return
 	}
+
+	log.Printf("Ethernet: Sending packet to %s", destHWAddr.String())
+	log.Printf("Ethernet Header: %+v", eth_header)
 
 	// Prepend ethernet header to skbuff
 	skb.PrependBytes(eth_header.Marshal())

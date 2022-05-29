@@ -1,6 +1,7 @@
 package ipv4
 
 import (
+	"errors"
 	"log"
 
 	"github.com/mattcarp12/go-net/netstack"
@@ -72,14 +73,20 @@ func (ipv4 *IPv4) HandleRx(skb *netstack.SkBuff) {
 }
 
 func (ipv4 *IPv4) HandleTx(skb *netstack.SkBuff) {
+	log.Println("IPV4: HandleTx")
+
 	// Get destination address from upper layer header
 	sock := skb.GetSocket()
 	if sock == nil {
-		log.Println("IPV4: Socket is nil")
+		skb.Error(errors.New("Socket is nil"))
 		return
 	}
 
-	destIP := sock.GetDestinationAddress().IP
+	protocolType, err := GetIPProtocolType(skb)
+	if err != nil {
+		skb.Error(err)
+		return
+	}
 
 	// Create a new IPv4 header
 	ipv4Header := &IPv4Header{
@@ -91,10 +98,10 @@ func (ipv4 *IPv4) HandleTx(skb *netstack.SkBuff) {
 		Flags:          0,
 		FragmentOffset: 0,
 		TTL:            64,
-		Protocol:       GetIPProtocolType(skb.GetType()),
+		Protocol:       protocolType,
 		HeaderChecksum: 0,
-		SourceIP:       skb.GetNetworkInterface().GetNetworkAddr(),
-		DestinationIP:  destIP,
+		SourceIP:       sock.GetSourceAddress().GetIP(),
+		DestinationIP:  sock.GetDestinationAddress().GetIP(),
 	}
 
 	// Calculate the checksum
@@ -108,7 +115,7 @@ func (ipv4 *IPv4) HandleTx(skb *netstack.SkBuff) {
 
 	// Passing to link layer, so need to set the skb type
 	// to the type of the interface
-	skb.SetType(skb.GetNetworkInterface().GetType())
+	skb.SetType(netstack.ProtocolTypeEthernet)
 
 	// Send the skb to the next layer
 	ipv4.TxDown(skb)

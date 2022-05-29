@@ -2,13 +2,15 @@ package ipc
 
 import (
 	"bufio"
-	"log"
+	logging "log"
 	"net"
 	"os"
 
 	"github.com/google/uuid"
 	"github.com/mattcarp12/go-net/netstack"
 )
+
+var log = logging.New(os.Stdout, "[IPC] ", logging.Ldate|logging.Lmicroseconds|logging.Lshortfile)
 
 type IPC struct {
 	socket_layer netstack.SocketLayer
@@ -76,6 +78,8 @@ func (ipc *IPC) serve() {
 }
 
 // SyscallResponseLoop ...
+// The IPC server received responses from the socket layer and dispatches
+// them to the appropriate connection
 func (ipc *IPC) SyscallResponseLoop() {
 	for {
 		// get message from rx_chan
@@ -98,17 +102,22 @@ func (server *IPCServer) Wait() {
 
 // handle_connection ...
 // this is the goroutine that will handle the connection
+// to the client process
 func (iconn *ipc_conn) handle_connection() {
 	reader := bufio.NewReader(iconn.conn)
 	for {
+		log.Printf("Reading syscall request")
 		// Read request
 		var req netstack.SockSyscallRequest
 		err := req.Read(reader)
 		if err != nil {
 			log.Printf("Error reading request: %s", err)
-			iconn.conn.Close()
+			// TODO: Send request to close socket
+			iconn.close()
 			return
 		}
+
+		log.Printf("Received request: %+v", req)
 
 		// Set the connection ID
 		req.ConnID = iconn.id
@@ -124,6 +133,24 @@ func (iconn *ipc_conn) handle_connection() {
 		rawResp := append(resp.Bytes(), '\n')
 		iconn.conn.Write(rawResp)
 	}
+}
+
+func (iconn *ipc_conn) close() {
+	// make SockSyscallRequest for to close the socket
+	req := netstack.SockSyscallRequest{
+		ConnID:      iconn.id,
+		SyscallType: netstack.SyscallClose,
+	}
+
+	// send request to socket layer
+	iconn.socket_layer.SendSyscall(req)
+
+	// wait for response
+	resp := iconn.get_response()
+	log.Printf("Received response: %+v", resp)
+
+	// close connection
+	iconn.conn.Close()
 }
 
 func Init(sl netstack.SocketLayer) *IPC {

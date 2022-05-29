@@ -3,12 +3,16 @@ package api
 import (
 	"bufio"
 	"encoding/json"
-	"log"
+	"errors"
+	logging "log"
 	"net"
 	"os"
 
 	"github.com/mattcarp12/go-net/netstack"
 )
+
+// package logger
+var log = logging.New(os.Stdout, "[API] ", logging.Ldate|logging.Lmicroseconds|logging.Lshortfile)
 
 var ipc_conn net.Conn
 var ipc_reader *bufio.Reader
@@ -75,7 +79,16 @@ func ipc_recv(resp *netstack.SockSyscallResponse) error {
 	}
 
 	// unmarshal the response
-	return json.Unmarshal(respBytes, resp)
+	err = json.Unmarshal(respBytes, resp)
+	if err != nil {
+		return err
+	}
+
+	if resp.ErrMsg != "" {
+		resp.Err = errors.New(resp.ErrMsg)
+	}
+
+	return nil
 }
 
 func ipc_send_recv(req netstack.SockSyscallRequest) (netstack.SockSyscallResponse, error) {

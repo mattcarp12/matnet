@@ -41,6 +41,7 @@ func IfRxLoop(iface NetworkInterface) {
 func IfTxLoop(iface NetworkInterface) {
 	for {
 		skb := <-iface.TxChan()
+		log.Printf("Sending packet to network device: %v", skb)
 		if err := iface.Write(skb.GetBytes()); err != nil {
 			log.Println("Error writing to network device:", err)
 			skb.Error(err)
@@ -48,5 +49,6 @@ func IfTxLoop(iface NetworkInterface) {
 		}
 
 		skb.TxSuccess(len(skb.GetBytes()))
+		log.Printf("TX Success!")
 	}
 }

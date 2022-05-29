@@ -1,12 +1,16 @@
 package linklayer
 
 import (
+	logging "log"
 	"net"
+	"os"
 
 	"github.com/mattcarp12/go-net/netstack"
 	"github.com/mattcarp12/go-net/netstack/linklayer/ethernet"
 	"github.com/mattcarp12/go-net/tuntap"
 )
+
+var log = logging.New(os.Stdout, "[LinkLayer] ", logging.Ldate|logging.Lmicroseconds|logging.Lshortfile)
 
 type LinkLayer struct {
 	netstack.ILayer
@@ -40,6 +44,7 @@ func Init() (*LinkLayer, netstack.RoutingTable) {
 		IP:      net.IPv4(10, 88, 45, 69),
 		Netmask: net.IPv4Mask(255, 255, 255, 0),
 		Gateway: net.IPv4(10, 88, 45, 1),
+		MAC:     net.HardwareAddr{0xde, 0xad, 0xbe, 0xef, 0xde, 0xad},
 		Mtu:     1500,
 	}
 

@@ -140,6 +140,9 @@ func (icmp *ICMPv4) EchoReply(skb *netstack.SkBuff, requestHeader *ICMPv4Header)
 
 	// Send the ICMP echo reply to IP
 	icmp.ip.TxChan() <- replySkb
+
+	// Make sure to read the skb response
+	replySkb.Resp()
 }
 
 // function to handle ICMP destination unreachable
