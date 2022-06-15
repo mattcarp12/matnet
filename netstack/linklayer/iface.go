@@ -17,7 +17,7 @@ type IfaceConfig struct {
 }
 
 // Iface contains the common attributes for all network devices.
-// Each device type should inherit this struct.
+// Each device type should embed this struct.
 type Iface struct {
 	IfaceConfig
 	RxPackets uint64
@@ -67,10 +67,6 @@ func (dev *Iface) GetGateway() net.IP {
 	return dev.Gateway
 }
 
-func (dev *Iface) GetMTU() uint16 {
-	return dev.Mtu
-}
-
 func (dev *Iface) Read() ([]byte, error) {
 	return nil, nil
 }
@@ -79,9 +75,9 @@ func (dev *Iface) Write(data []byte) error {
 	return nil
 }
 
-/**
-TAP Device
-*/
+/******************************************************************************
+	TAP Device
+*******************************************************************************/
 
 type TAPDevice struct {
 	Iface
@@ -105,14 +101,13 @@ func (dev *TAPDevice) Read() ([]byte, error) {
 }
 
 func (dev *TAPDevice) Write(data []byte) error {
-	log.Printf("TAPDevice.Write: %v", data)
 	_, err := dev.tap.Write(data)
 	return err
 }
 
-/**
+/******************************************************************************
 Loopback device
-*/
+*******************************************************************************/
 
 type LoopbackDevice struct {
 	Iface
@@ -132,11 +127,13 @@ func NewLoopback() *LoopbackDevice {
 	return &netdev
 }
 
+// read from the write channel
 func (dev *LoopbackDevice) Read() ([]byte, error) {
 	skb := <-dev.TxChan()
 	return skb.GetBytes(), nil
 }
 
+// and write to the read channel
 func (dev *LoopbackDevice) Write(data []byte) error {
 	dev.rx_chan <- data
 	return nil

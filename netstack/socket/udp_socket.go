@@ -45,12 +45,14 @@ func (s *udp_socket) Connect(addr netstack.SockAddr) error {
 
 // Close...
 func (s *udp_socket) Close() error {
+	// Tell UDP protocol to close socket
+	// and delete from socket_manager
 	return nil
 }
 
 // Read...
-func (s *udp_socket) Read(b []byte) (int, error) {
-	return 0, nil
+func (s *udp_socket) Read() ([]byte, error) {
+	return []byte{}, nil
 }
 
 // Write...
@@ -85,8 +87,6 @@ func (sock *udp_socket) WriteTo(b []byte, destAddr netstack.SockAddr) (int, erro
 
 	// Wait for response from network stack
 	resp := skb.Resp()
-
-	log.Printf("UDP Socket WriteTo Response: %+v", resp)
 
 	return resp.BytesWritten(), resp.Error()
 }

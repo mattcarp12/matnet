@@ -71,6 +71,7 @@ func (ipc *IPC) serve() {
 
 		// Add to connection map
 		ipc.conn_map[iconn.id] = iconn
+		// TODO : How does this get cleaned up?
 
 		// Start goroutine to handle connection
 		go iconn.handle_connection()
@@ -112,7 +113,6 @@ func (iconn *ipc_conn) handle_connection() {
 		err := req.Read(reader)
 		if err != nil {
 			log.Printf("Error reading request: %s", err)
-			// TODO: Send request to close socket
 			iconn.close()
 			return
 		}

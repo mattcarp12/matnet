@@ -41,7 +41,7 @@ func WriteTo(sock netstack.SockID, data []byte, flags int, dest SockAddr) error 
 	return resp.Err
 }
 
-func Read(sock netstack.SockID, data *[]byte) (int, error) {
+func Read(sock netstack.SockID, data *[]byte) error {
 	// Create a read request object
 	req := netstack.SockSyscallRequest{
 		SyscallType: netstack.SyscallRead,
@@ -50,11 +50,11 @@ func Read(sock netstack.SockID, data *[]byte) (int, error) {
 
 	resp, err := ipc_send_recv(req)
 	if err != nil {
-		return 0, err
+		return err
 	}
 
 	// copy response to data buffer
 	*data = resp.Data
 
-	return resp.BytesWritten, resp.Err
+	return resp.Err
 }

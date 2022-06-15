@@ -104,20 +104,14 @@ func StartProtocol(protocol Protocol) {
 
 func ProtocolRxLoop(protocol Protocol) {
 	for {
-		// Network protocol reads skb from it's rx_chan
 		skb := <-protocol.RxChan()
-
-		// Handle skb
 		protocol.HandleRx(skb)
 	}
 }
 
 func ProtocolTxLoop(protocol Protocol) {
 	for {
-		// Network protocol reads skb from it's tx_chan
 		skb := <-protocol.TxChan()
-
-		// Handle skb
 		protocol.HandleTx(skb)
 	}
 }

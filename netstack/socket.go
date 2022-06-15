@@ -106,7 +106,7 @@ type SocketOperations interface {
 	Accept() (net.Conn, error)
 	Connect(addr SockAddr) error
 	Close() error
-	Read(b []byte) (int, error)
+	Read() ([]byte, error)
 	Write(b []byte) (int, error)
 	ReadFrom(b []byte, addr *SockAddr) (int, error)
 	WriteTo(b []byte, addr SockAddr) (int, error)
@@ -133,17 +133,19 @@ type SocketMetaOps interface {
 
 	GetRoute() *route
 	SetRoute(r *route)
+
+	GetRxChan() chan *SkBuff
 }
 
 type SocketSkbOps interface {
 	RecvSkb() *SkBuff
-	SendSkb(skb *SkBuff)
+	SendSkb(*SkBuff)
 }
 
 // Each socket is identified by a globally unique ID.
 type SockID string
 
-var ErrInvalidSocketID = errors.New("Invalid socket ID")
+var ErrInvalidSocketID = errors.New("invalid socket ID")
 
 func NewSockID() SockID {
 	return SockID(uuid.New().String())
@@ -158,7 +160,7 @@ const (
 	SocketTypeRaw
 )
 
-var ErrInvalidSocketType = errors.New("Invalid socket type")
+var ErrInvalidSocketType = errors.New("invalid socket type")
 
 type SocketState uint
 
@@ -188,7 +190,7 @@ const (
 	AddressTypeUnknown
 )
 
-var ErrInvalidAddressType = errors.New("Invalid address type")
+var ErrInvalidAddressType = errors.New("invalid address type")
 
 func (s SockAddr) GetPort() uint16 {
 	return s.Port
@@ -214,7 +216,7 @@ func (s SockAddr) GetType() AddressType {
 
 /****************************************************************************
 	ISocket - helper struct for Socket implementations
-	Implements common methods for all sockets
+	Implements methods common for all sockets
 ****************************************************************************/
 
 type ISocket struct {
@@ -238,10 +240,17 @@ type ISocket struct {
 
 	// Route
 	Route *route
+
+	// RxChan
+	RxChan chan *SkBuff
 }
 
+const socket_rx_chan_size = 100
+
 func NewSocket() *ISocket {
-	return &ISocket{}
+	return &ISocket{
+		RxChan: make(chan *SkBuff, socket_rx_chan_size),
+	}
 }
 
 func (s *ISocket) GetType() SocketType {
@@ -306,4 +315,8 @@ func (s *ISocket) GetRoute() *route {
 
 func (s *ISocket) SetRoute(route *route) {
 	s.Route = route
+}
+
+func (s *ISocket) GetRxChan() chan *SkBuff {
+	return s.RxChan
 }

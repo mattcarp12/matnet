@@ -13,7 +13,6 @@ type NetworkInterface interface {
 	GetNetworkAddr() net.IP
 	GetNetmask() net.IPMask
 	GetGateway() net.IP
-	GetMTU() uint16
 
 	// HandleRX is called when a packet is received from the "wire"
 	HandleRx([]byte)

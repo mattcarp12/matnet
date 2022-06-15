@@ -20,16 +20,16 @@ get_physical_interface_name() {
 
 # Function to add ip tables rule to forward to tap0.
 add_iptables_rule() {
-    # iptables -I INPUT --source $network -j ACCEPT
-    # iptables -t nat -A POSTROUTING -o ${physical_interface_name} -j MASQUERADE
+    iptables -I INPUT --source $network -j ACCEPT
+    iptables -t nat -I POSTROUTING -o ${physical_interface_name} -j MASQUERADE
     iptables -I FORWARD -i ${physical_interface_name} -o tap0 -j ACCEPT
     iptables -I FORWARD -i tap0 -o ${physical_interface_name} -j ACCEPT
 }
 
 # Function to remove ip tables rule to forward to tap0.
 remove_iptables_rule() {
-    # iptables -D INPUT --source $network -j ACCEPT
-    # iptables -t nat -D POSTROUTING -o ${physical_interface_name} -j MASQUERADE
+    iptables -D INPUT --source $network -j ACCEPT
+    iptables -t nat -D POSTROUTING -o ${physical_interface_name} -j MASQUERADE
     iptables -D FORWARD -i ${physical_interface_name} -o tap0 -j ACCEPT
     iptables -D FORWARD -i tap0 -o ${physical_interface_name} -j ACCEPT
 }

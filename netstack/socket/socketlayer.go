@@ -14,6 +14,7 @@ var log = logging.New(os.Stdout, "[Socket] ", logging.Ldate|logging.Lmicrosecond
 */
 
 type socket_layer struct {
+	netstack.ILayer
 	tx_chan         chan netstack.SockSyscallRequest
 	rx_chan         chan netstack.SockSyscallResponse
 	socket_map      map[netstack.SockID]netstack.Socket
@@ -76,7 +77,6 @@ func (s *socket_layer) handle() {
 
 // socket creates a new socket
 func (sm *socket_layer) socket(syscall netstack.SockSyscallRequest) {
-	log.Printf("Creating new socket!!!\n")
 	// create response structure
 	resp := syscall.MakeResponse()
 
@@ -146,7 +146,25 @@ func (sm *socket_layer) close(syscall netstack.SockSyscallRequest) {
 	sm.resp(resp)
 }
 
-func (sm *socket_layer) read(syscall netstack.SockSyscallRequest) {}
+func (sm *socket_layer) read(syscall netstack.SockSyscallRequest) {
+	// Get socket from map
+	sock, ok := sm.socket_map[syscall.SockID]
+	if !ok {
+		sm.err(netstack.ErrInvalidSocketID, syscall.MakeResponse())
+		return
+	}
+
+	// Read from socket
+	data, err := sock.Read()
+
+	// Handle the response
+	resp := syscall.MakeResponse()
+	resp.Err = err
+	resp.Data = data
+
+	// Send response back to socket layer
+	sm.resp(resp)
+}
 
 func (sm *socket_layer) write(syscall netstack.SockSyscallRequest) {}
 
@@ -204,9 +222,74 @@ func Init(transport_layer netstack.Layer, routing_table netstack.RoutingTable) *
 		tx_chan:    make(chan netstack.SockSyscallRequest),
 		rx_chan:    make(chan netstack.SockSyscallResponse),
 	}
+	sl.SkBuffReaderWriter = netstack.NewSkBuffChannels()
 	sl.routing_table = routing_table
 	sl.transport_layer = transport_layer
+
+	// Create socket layer "protocols", i.e. the socket managers
+	udp_socket_manager := NewSocketManager(netstack.ProtocolTypeUDP)
+	tcp_socket_manager := NewSocketManager(netstack.ProtocolTypeTCP)
+	raw_socket_manager := NewSocketManager(netstack.ProtocolTypeRaw)
+
+	// Add the socket managers to the socket layer
+	sl.AddProtocol(udp_socket_manager)
+	sl.AddProtocol(tcp_socket_manager)
+	sl.AddProtocol(raw_socket_manager)
+
+	// Set the transport layer's next layer to the socket layer
+	// so that the transport layer can send packets to the socket layer
+	transport_layer.SetNextLayer(sl)
+
 	go sl.handle()
 
 	return sl
 }
+
+/**********************************************************************************************************************
+	Socket Manager
+	Data structure to manage sockets for a transport protocol
+**********************************************************************************************************************/
+type PortNumber uint16
+
+type socket_manager struct {
+	netstack.IProtocol
+	sockets map[PortNumber]netstack.Socket
+}
+
+func NewSocketManager(protocol_type netstack.ProtocolType) *socket_manager {
+	return &socket_manager{
+		IProtocol: netstack.NewIProtocol(protocol_type),
+		sockets:   make(map[PortNumber]netstack.Socket),
+	}
+}
+
+func (sm *socket_manager) get(port PortNumber) netstack.Socket {
+	return sm.sockets[port]
+}
+
+func (sm *socket_manager) add(port PortNumber, socket netstack.Socket) {
+	sm.sockets[port] = socket
+}
+
+func (sm *socket_manager) remove(port PortNumber) {
+	delete(sm.sockets, port)
+}
+
+func (sm *socket_manager) HandleRx(skb *netstack.SkBuff) {
+	// Get the port number from the skb
+	port := PortNumber(skb.GetL4Header().GetDstPort())
+
+	// Get the socket from the map
+	sock := sm.get(port)
+
+	// If the socket is nil, then we don't have a socket for this port
+	if sock == nil {
+		return
+	}
+
+	// Pass the skb to the socket
+	sock.GetRxChan() <- skb
+}
+
+// This is not used for the socket layer
+func (sm *socket_manager) HandleTx(skb *netstack.SkBuff) {}

@@ -2,6 +2,7 @@ package transportlayer
 
 import (
 	"encoding/binary"
+	"errors"
 	"net"
 
 	"github.com/mattcarp12/go-net/netstack"
@@ -74,27 +75,48 @@ func (ph *UdpPsuedoHeader) Marshal() []byte {
 
 type UdpProtocol struct {
 	netstack.IProtocol
-	port_manager *netstack.PortManager
+	port_manager   *PortManager
 }
 
 func NewUDP() *UdpProtocol {
 	udp := &UdpProtocol{
-		IProtocol:    netstack.NewIProtocol(netstack.ProtocolTypeUDP),
-		port_manager: netstack.NewPortManager(),
+		IProtocol:      netstack.NewIProtocol(netstack.ProtocolTypeUDP),
+		port_manager:   NewPortManager(),
 	}
 	return udp
 }
 
 func (udp *UdpProtocol) HandleRx(skb *netstack.SkBuff) {
 	// Create a new UDP header
+	h := &UdpHeader{}
+
 	// Unmarshal the UDP header, handle errors
-	// Handle fragmentation, possibly reassemble
+	if err := h.Unmarshal(skb.GetBytes()); err != nil {
+		skb.Error(err)
+		return
+	}
+
+	// Set the L4 header
+	skb.SetL4Header(h)
+
+	// TODO: Handle fragmentation, possibly reassemble
+
 	// Strip the UDP header from the skb
-	// Everything is good, send to user space
+	skb.StripBytes(8)
+
+	// Send to socket layer
+	udp.RxUp(skb)
+
 }
 
 func (udp *UdpProtocol) HandleTx(skb *netstack.SkBuff) {
 	log.Printf("HandleTx -- UDP packet")
+
+	// Check for existance of socket
+	if skb.GetSocket() == nil {
+		skb.Error(errors.New("socket does not exist on skb"))
+		return
+	}
 
 	// setup the UDP header
 	if h, err := udp.make_udp_header(skb); err != nil {
@@ -127,7 +149,7 @@ func (udp *UdpProtocol) make_udp_header(skb *netstack.SkBuff) (*UdpHeader, error
 	if srcPort, err := udp.port_manager.GetPort(); err != nil {
 		return nil, err
 	} else {
-		h.SrcPort = srcPort
+		h.SrcPort = uint16(srcPort)
 	}
 
 	// Set length
@@ -146,9 +168,10 @@ func set_udp_checksum(skb *netstack.SkBuff, h *UdpHeader) error {
 	h.Checksum = 0
 
 	// Make pseudo header
+	// TODO: Handle IPv6
 	p := &UdpPsuedoHeader{
-		SrcAddr: skb.GetSocket().GetSourceAddress().GetIP(),
-		DstAddr: skb.GetSocket().GetDestinationAddress().GetIP(),
+		SrcAddr: skb.GetSocket().GetSourceAddress().GetIP().To4(),
+		DstAddr: skb.GetSocket().GetDestinationAddress().GetIP().To4(),
 		Zero:    0,
 		Proto:   17,
 		Length:  h.Length,

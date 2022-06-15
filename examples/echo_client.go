@@ -24,19 +24,21 @@ func main() {
 	}
 
 	// Send to the socket
-	err = s.WriteTo(sock, []byte("Hello World"), 0, sock_addr)
+	err = s.WriteTo(sock, []byte("Hello World\n"), 0, sock_addr)
 	if err != nil {
 		time.Sleep(time.Second)
 		// Write again
-		s.WriteTo(sock, []byte("Hello World"), 0, sock_addr)
+		s.WriteTo(sock, []byte("Hello World\n"), 0, sock_addr)
 	}
 
-	time.Sleep(time.Second * 3)
+	time.Sleep(time.Second * 5)
 
 	// Read response from the socket
-	// buf := make([]byte, 1024)
-	// n, err := s.Read(sock, &buf)
+	buf := make([]byte, 1024)
+	if err = s.Read(sock, &buf); err != nil {
+		panic(err)
+	}
 
-	// fmt.Printf("Received %d bytes\n", n)
+	fmt.Printf("Read %d bytes: %s\n", len(buf), string(buf))
 
 }

@@ -45,8 +45,8 @@ func (s *tcp_socket) Close() error {
 }
 
 // Read...
-func (s *tcp_socket) Read(b []byte) (int, error) {
-	return 0, nil
+func (s *tcp_socket) Read() ([]byte, error) {
+	return []byte{}, nil
 }
 
 // Write...

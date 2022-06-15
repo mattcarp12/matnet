@@ -63,13 +63,13 @@ func (ipv4 *IPv4) HandleRx(skb *netstack.SkBuff) {
 	// Check if packet is TCP or UDP
 	// If so, pass it up to Layer 4
 	if ipv4Header.Protocol == ProtocolTCP || ipv4Header.Protocol == ProtocolUDP {
-		// TODO: implement this
-		// ipv4.RxUp(skb)
+		ipv4.RxUp(skb)
 		return
 	}
 
 	// If packet type is not recognized, drop it
 	log.Printf("IPV4: Unknown packet type: %v", ipv4Header.Protocol)
+	skb.Error(errors.New("Unknown packet type"))
 }
 
 func (ipv4 *IPv4) HandleTx(skb *netstack.SkBuff) {

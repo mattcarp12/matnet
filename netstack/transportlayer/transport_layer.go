@@ -1,6 +1,7 @@
 package transportlayer
 
 import (
+	"errors"
 	logging "log"
 	"os"
 
@@ -60,4 +61,35 @@ func set_skb_type(skb *netstack.SkBuff) error {
 		return netstack.ErrInvalidAddressType
 	}
 	return nil
+}
+
+/**********************************************************************************************************************
+	Port Manager
+	Data structure to manage ports for a transport protocol
+**********************************************************************************************************************/
+
+type PortNumber uint16
+
+type PortManager struct {
+	current_port   PortNumber
+	assigned_ports map[PortNumber]bool
+}
+
+func NewPortManager() *PortManager {
+	return &PortManager{current_port: 40000, assigned_ports: make(map[PortNumber]bool)}
+}
+
+func (pm *PortManager) GetPort() (PortNumber, error) {
+	for i := pm.current_port; i < 65535; i++ {
+		if !pm.assigned_ports[i] {
+			pm.assigned_ports[i] = true
+			pm.current_port = i
+			return i, nil
+		}
+	}
+	return 0, errors.New("no ports available")
+}
+
+func (pm *PortManager) ReleasePort(port PortNumber) {
+	delete(pm.assigned_ports, port)
 }

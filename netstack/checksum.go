@@ -8,17 +8,21 @@ func Checksum(data []byte) uint16 {
 		index  int
 	)
 
-	for length > 1 {
+	// make length multiple of 2
+	if length%2 != 0 {
+		data = append(data, 0)
+		length++
+	}
+
+	// sum the 16-bit words
+	for index < length {
 		sum += uint32(data[index])<<8 + uint32(data[index+1])
 		index += 2
-		length -= 2
 	}
 
-	if length > 0 {
-		sum += uint32(data[index])
-	}
+	// add top 16 bits to bottom 16 bits
+	sum = (sum >> 16) + (sum & 0xffff)
 
-	sum += (sum >> 16)
-
+	// return 1's complement of sum
 	return uint16(^sum)
 }

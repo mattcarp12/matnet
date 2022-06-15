@@ -35,7 +35,7 @@ type routing_table struct {
 	default_route route
 }
 
-var ErrNoRouteFound = errors.New("No route found")
+var ErrNoRouteFound = errors.New("no route found")
 
 func NewRoutingTable() *routing_table {
 	return &routing_table{}
