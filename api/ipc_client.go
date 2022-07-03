@@ -16,17 +16,8 @@ var log = logging.New(os.Stdout, "[API] ", logging.Ldate|logging.Lmicroseconds|l
 
 var ipc_conn net.Conn
 var ipc_reader *bufio.Reader
-var ipc_conn_addr string
-var pid int
 
 const ipc_addr = "/tmp/gonet.sock"
-
-func init() {
-	// connect to the server
-	if err := ipc_connect(); err != nil {
-		panic(err)
-	}
-}
 
 // function to connect to client
 func ipc_connect() error {
@@ -41,12 +32,6 @@ func ipc_connect() error {
 
 	// Create a reader
 	ipc_reader = bufio.NewReader(ipc_conn)
-
-	// Save process ID
-	pid = os.Getpid()
-
-	// Save the connection address
-	ipc_conn_addr = conn.LocalAddr().String()
 
 	return nil
 }
@@ -92,6 +77,14 @@ func ipc_recv(resp *netstack.SockSyscallResponse) error {
 }
 
 func ipc_send_recv(req netstack.SockSyscallRequest) (netstack.SockSyscallResponse, error) {
+	// Make sure we are connected
+	if ipc_conn == nil {
+		err := ipc_connect()
+		if err != nil {
+			return netstack.SockSyscallResponse{}, err
+		}
+	}
+
 	var resp netstack.SockSyscallResponse
 
 	if err := ipc_send(req); err != nil {
