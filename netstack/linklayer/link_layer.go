@@ -72,7 +72,7 @@ func Init() (*LinkLayer, netstack.RoutingTable) {
 	netstack.StartProtocol(eth)
 
 	// Start link layer goroutines
-	netstack.StartLayerDispatchLoops(link_layer)
+	netstack.StartLayer(link_layer)
 
 	// Make routing table
 	rt := netstack.NewRoutingTable()

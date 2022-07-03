@@ -65,7 +65,7 @@ func (layer *ILayer) SetPrevLayer(prevLayer Layer) {
 		2. TxDispatch - reads SkBuffs from the layer's tx_chan and dispatches them to the appropriate protocol
 */
 
-func StartLayerDispatchLoops(layer Layer) {
+func StartLayer(layer Layer) {
 	go RxDispatch(layer)
 	go TxDispatch(layer)
 }
