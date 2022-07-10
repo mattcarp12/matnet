@@ -8,21 +8,22 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/mattcarp12/go-net/netstack"
+	"github.com/mattcarp12/go-net/netstack/socket"
 )
 
 var log = logging.New(os.Stdout, "[IPC] ", logging.Ldate|logging.Lmicroseconds|logging.Lshortfile)
 
 type IPC struct {
-	socket_layer netstack.SocketLayer
-	server       *IPCServer
-	conn_map     map[string]*ipc_conn
-	rx_chan      chan netstack.SockSyscallResponse
+	socket_layer    *socket.SocketLayer
+	server          *IPCServer
+	conn_map        map[string]*ipc_conn
+	SyscallRespChan chan netstack.SockSyscallResponse
 }
 
 type ipc_conn struct {
 	id           string
 	conn         net.Conn
-	socket_layer netstack.SocketLayer
+	socket_layer *socket.SocketLayer
 	rx_chan      chan netstack.SockSyscallResponse
 }
 
@@ -83,9 +84,10 @@ func (ipc *IPC) serve() {
 // them to the appropriate connection
 func (ipc *IPC) SyscallResponseLoop() {
 	for {
-		// get message from rx_chan
-		msg := <-ipc.rx_chan
-		log.Printf("Received message: %+v", msg)
+		// Get message from response channel and dispatch to connection
+		// The response channel is actually the socket layer's syscall response channel
+		msg := <-ipc.SyscallRespChan
+		log.Printf("Received Syscall Response: %+v", msg)
 
 		// get connection from map
 		if conn, ok := ipc.conn_map[msg.ConnID]; ok {
@@ -103,11 +105,11 @@ func (server *IPCServer) Wait() {
 
 // handle_connection ...
 // this is the goroutine that will handle the connection
-// to the client process
+// to the client process. It listens for Syscall Requests
+// from the client and dispatches them to the socket layer.
 func (iconn *ipc_conn) handle_connection() {
 	reader := bufio.NewReader(iconn.conn)
 	for {
-		log.Printf("Reading syscall request")
 		// Read request
 		var req netstack.SockSyscallRequest
 		err := req.Read(reader)
@@ -123,11 +125,10 @@ func (iconn *ipc_conn) handle_connection() {
 		req.ConnID = iconn.id
 
 		// Send request to socket layer
-		iconn.socket_layer.SendSyscall(req)
+		iconn.socket_layer.SyscallReqChan <- req
 
 		// Wait for response
 		resp := iconn.get_response()
-		log.Printf("Received response: %+v", resp)
 
 		// Write response
 		rawResp := append(resp.Bytes(), '\n')
@@ -143,7 +144,7 @@ func (iconn *ipc_conn) close() {
 	}
 
 	// send request to socket layer
-	iconn.socket_layer.SendSyscall(req)
+	iconn.socket_layer.SyscallReqChan <- req
 
 	// wait for response
 	resp := iconn.get_response()
@@ -153,7 +154,7 @@ func (iconn *ipc_conn) close() {
 	iconn.conn.Close()
 }
 
-func Init(sl netstack.SocketLayer) *IPC {
+func Init(sl *socket.SocketLayer) *IPC {
 	os.Remove(ipc_addr)
 	ipc := &IPC{
 		sl,
@@ -164,8 +165,9 @@ func Init(sl netstack.SocketLayer) *IPC {
 		make(chan netstack.SockSyscallResponse),
 	}
 
-	// Set SocketLayer rx_chan so it can sent messages to the IPC server
-	sl.SetRxChan(ipc.rx_chan)
+	// Set SocketLayer syscall response channel so it can
+	// send messages to the IPC server
+	sl.SyscallRespChan = ipc.SyscallRespChan
 
 	go ipc.serve()
 	go ipc.SyscallResponseLoop()
