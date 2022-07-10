@@ -8,6 +8,9 @@ import (
 )
 
 func main() {
+	// Make destination address
+	destAddr := flag.String("dest", "", "Destination address")
+	flag.Parse()
 
 	// create new socket
 	sock, err := s.Socket(s.SOCK_STREAM)
@@ -15,8 +18,6 @@ func main() {
 		panic(err)
 	}
 
-	// Make destination address
-	destAddr := flag.String("dest", "", "Destination address")
 	ip := net.ParseIP(*destAddr)
 	if ip == nil {
 		panic("Invalid IP address")
