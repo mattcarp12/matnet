@@ -1,7 +1,6 @@
 package netstack
 
 import (
-	"log"
 	"net"
 )
 
@@ -30,7 +29,6 @@ func IfRxLoop(iface NetworkInterface) {
 	for {
 		data, err := iface.Read()
 		if err != nil {
-			log.Println("Error reading from network device:", err)
 			continue
 		}
 		iface.HandleRx(data)
@@ -40,14 +38,12 @@ func IfRxLoop(iface NetworkInterface) {
 func IfTxLoop(iface NetworkInterface) {
 	for {
 		skb := <-iface.TxChan()
-		log.Printf("Sending packet to network device: %v", skb)
-		if err := iface.Write(skb.GetBytes()); err != nil {
-			log.Println("Error writing to network device:", err)
+		if err := iface.Write(skb.Data); err != nil {
 			skb.Error(err)
 			continue
 		}
 
-		skb.TxSuccess(len(skb.GetBytes()))
-		log.Printf("TX Success!")
+		// Report that the packet was successfully sent on the wire
+		skb.TxSuccess()
 	}
 }
