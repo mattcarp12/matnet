@@ -24,7 +24,7 @@ func (arp *ARPProtocol) HandleRx(skb *netstack.SkBuff) {
 	arpHeader := &ARPHeader{}
 
 	// parse the arp header
-	if err := arpHeader.Unmarshal(skb.GetBytes()); err != nil {
+	if err := arpHeader.Unmarshal(skb.Data); err != nil {
 		log.Printf("Error parsing arp header: %v", err)
 		return
 	}
@@ -53,7 +53,7 @@ func (arp *ARPProtocol) HandleRx(skb *netstack.SkBuff) {
 
 	// Make sure TargetIP equals our IP
 	// TODO: Handle multihoming? Handle ipv4/ipv6 addresses?
-	if !arpHeader.TargetIPAddr.Equal(skb.GetNetworkInterface().GetNetworkAddr()) {
+	if !arpHeader.TargetIPAddr.Equal(skb.NetworkInterface.GetNetworkAddr()) {
 		log.Printf("ARP request not for our IP: %v", arpHeader.TargetIPAddr)
 		return
 	}
@@ -71,29 +71,29 @@ func (arp *ARPProtocol) ARPReply(inArpHeader *ARPHeader, inSkb *netstack.SkBuff)
 	arpReplyHeader.OpCode = ARP_REPLY
 	arpReplyHeader.TargetHWAddr = inArpHeader.SourceHWAddr
 	arpReplyHeader.TargetIPAddr = inArpHeader.SourceIPAddr
-	arpReplyHeader.SourceHWAddr = inSkb.GetNetworkInterface().GetHWAddr()
+	arpReplyHeader.SourceHWAddr = inSkb.NetworkInterface.GetHWAddr()
 	arpReplyHeader.SourceIPAddr = inArpHeader.TargetIPAddr
-
-	log.Printf("ARP Reply Header is: %+v", arpReplyHeader)
 
 	// Create a new arp skb
 	arpReplySkb := netstack.NewSkBuff(arpReplyHeader.Marshal())
 
 	// Set the network interface
-	arpReplySkb.SetNetworkInterface(inSkb.GetNetworkInterface())
+	arpReplySkb.NetworkInterface = inSkb.NetworkInterface
 
-	// Set the skb L3 header to the ARP header
-	arpReplySkb.SetL3Header(arpReplyHeader)
+	// Set L3 fields in the skb
+	arpReplySkb.SrcAddr.IP = arpReplyHeader.SourceIPAddr
+	arpReplySkb.DestAddr.IP = arpReplyHeader.TargetIPAddr
+	arpReplySkb.L3ProtocolType = netstack.ProtocolTypeARP
 
 	// Set the type of the skb to the link layer type (ethernet, etc),
 	// which we get from the network interface
-	arpReplySkb.SetType(arpReplySkb.GetNetworkInterface().GetType())
+	arpReplySkb.ProtocolType = arpReplySkb.NetworkInterface.GetType()
 
 	// Send the arp reply down to link layer
 	arp.TxDown(arpReplySkb)
 
 	// Get the skb response
-	skbResp := arpReplySkb.Resp()
+	skbResp := arpReplySkb.GetResp()
 
 	// log the response
 	log.Printf("ARP Reply SkbResponse is: %+v", skbResp)
@@ -121,21 +121,23 @@ func (arp *ARPProtocol) ARPRequest(ip net.IP, iface netstack.NetworkInterface) {
 	rawArpHeader := arpRequestHeader.Marshal()
 	arpSkb := netstack.NewSkBuff(rawArpHeader)
 
-	// Set L3 header to the arp header
-	arpSkb.SetL3Header(arpRequestHeader)
+	// Set src and dest addresses in the skb
+	arpSkb.SrcAddr.IP = arpRequestHeader.SourceIPAddr
+	arpSkb.DestAddr.IP = arpRequestHeader.TargetIPAddr
+	arpSkb.L3ProtocolType = netstack.ProtocolTypeARP
 
 	// Set the network interface
-	arpSkb.SetNetworkInterface(iface)
+	arpSkb.NetworkInterface = iface
 
 	// Set the type of the skb to the link layer type (ethernet, etc),
 	// which we get from the network interface
-	arpSkb.SetType(iface.GetType())
+	arpSkb.ProtocolType = iface.GetType()
 
 	// Send the arp request down to link layer
 	arp.TxDown(arpSkb)
 
 	// Get the skb response
-	skbResp := arpSkb.Resp()
+	skbResp := arpSkb.GetResp()
 
 	// log the response
 	log.Printf("ARP Request SkbResponse is: %+v", skbResp)

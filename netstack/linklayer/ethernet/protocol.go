@@ -1,6 +1,7 @@
 package ethernet
 
 import (
+	"errors"
 	logging "log"
 	"os"
 
@@ -33,7 +34,7 @@ func (eth *Ethernet) HandleRx(skb *netstack.SkBuff) {
 	eth_header := EthernetHeader{}
 
 	// Parse the ethernet header
-	if err := eth_header.Unmarshal(skb.GetBytes()); err != nil {
+	if err := eth_header.Unmarshal(skb.Data); err != nil {
 		log.Printf("Error parsing ethernet header: %v", err)
 		return
 	}
@@ -41,18 +42,18 @@ func (eth *Ethernet) HandleRx(skb *netstack.SkBuff) {
 	// Check if unicast
 	if IsUnicast(eth_header.addr.DstAddr) {
 		// Check if the packed is destined for this interface
-		if eth_header.addr.DstAddr.String() != skb.GetNetworkInterface().GetHWAddr().String() {
-			log.Printf("Packet not for this interface (dst: %s, src: %s)", eth_header.addr.DstAddr.String(), skb.GetNetworkInterface().GetHWAddr().String())
+		if eth_header.addr.DstAddr.String() != skb.NetworkInterface.GetHWAddr().String() {
+			log.Printf("Packet not for this interface (dst: %s, src: %s)", eth_header.addr.DstAddr.String(), skb.NetworkInterface.GetHWAddr().String())
 			return
 		}
 	} // If multicast or broadcast, continue processing
 
-	// Set link layer header
+	// Set L2 fields in the skb
 	skb.SetL2Header(&eth_header)
 
 	// Set skb type to the next layer type (ipv4, arp, etc)
 	// by inspecting EtherType field
-	skb.SetType(eth_header.GetL3Type())
+	skb.ProtocolType = eth_header.GetL3Type()
 
 	// Strip ethernet header from skb data buffer
 	skb.StripBytes(EthernetHeaderSize)
@@ -68,8 +69,12 @@ func (eth *Ethernet) HandleTx(skb *netstack.SkBuff) {
 		If link layer header is already set, there is nothing to do
 		so just pass the skbuff to network interface
 	*/
-	if skb.GetL2Header() != nil {
-		skb.GetNetworkInterface().TxChan() <- skb
+	if skb.L2Header != nil {
+		if iface := skb.NetworkInterface; iface != nil {
+			iface.TxChan() <- skb
+		} else {
+			skb.Error(errors.New("No network interface set"))
+		}
 		return
 	}
 
@@ -85,12 +90,13 @@ func (eth *Ethernet) HandleTx(skb *netstack.SkBuff) {
 	*/
 
 	// Get the destination hardware address from the arp cache
-	destHWAddr, err := eth.arp.Resolve(skb.GetL3Header().GetDstIP())
+	l3header := skb.GetL3Header()
+	destHWAddr, err := eth.arp.Resolve(l3header.GetDstIP())
 	if err != nil {
 		log.Printf("Error resolving destination hardware address: %v", err)
 
 		// If we can't get the hardware address, send an arp request
-		go eth.arp.SendRequest(skb.GetL3Header().GetDstIP(), skb.GetNetworkInterface())
+		go eth.arp.SendRequest(l3header.GetDstIP(), skb.NetworkInterface)
 
 		// Make sure to send response for the dropped skb
 		// TODO: Make request cache to handle requests once the arp response is received
@@ -102,19 +108,16 @@ func (eth *Ethernet) HandleTx(skb *netstack.SkBuff) {
 	// Create ethernet header
 	eth_header := EthernetHeader{}
 	eth_header.addr.DstAddr = destHWAddr
-	eth_header.addr.SrcAddr = skb.GetNetworkInterface().GetHWAddr()
-	eth_header.EtherType, err = GetEtherTypeFromProtocolType(skb.GetL3Header().GetType())
+	eth_header.addr.SrcAddr = skb.NetworkInterface.GetHWAddr()
+	eth_header.EtherType, err = GetEtherTypeFromProtocolType(l3header.GetType())
 	if err != nil {
 		log.Printf("Error getting EtherType: %v", err)
 		return
 	}
 
-	log.Printf("Ethernet: Sending packet to %s", destHWAddr.String())
-	log.Printf("Ethernet Header: %+v", eth_header)
-
 	// Prepend ethernet header to skbuff
 	skb.PrependBytes(eth_header.Marshal())
 
 	// Pass to network interface
-	skb.GetNetworkInterface().TxChan() <- skb
+	skb.NetworkInterface.TxChan() <- skb
 }

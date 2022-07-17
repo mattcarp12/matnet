@@ -12,8 +12,6 @@ type NetworkLayer struct {
 	netstack.ILayer
 }
 
-
-
 func Init(link_layer *linklayer.LinkLayer) *NetworkLayer {
 	network_layer := &NetworkLayer{}
 	network_layer.SkBuffReaderWriter = netstack.NewSkBuffChannels()
@@ -23,7 +21,7 @@ func Init(link_layer *linklayer.LinkLayer) *NetworkLayer {
 
 	ipv4proto := ipv4.NewIPv4()
 	icmpv4 := ipv4.NewICMPv4(ipv4proto)
-	ipv4proto.SetIcmp(icmpv4)
+	ipv4proto.Icmp = icmpv4
 
 	ipv6 := ipv6.NewIPV6()
 
@@ -53,7 +51,7 @@ func Init(link_layer *linklayer.LinkLayer) *NetworkLayer {
 	netstack.StartProtocol(ipv6)
 
 	// Start network layer goroutines
-	netstack.StartLayerDispatchLoops(network_layer)
+	netstack.StartLayer(network_layer)
 
 	return network_layer
 }

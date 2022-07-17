@@ -1,7 +1,6 @@
 package transportlayer
 
 import (
-	"errors"
 	logging "log"
 	"os"
 
@@ -42,7 +41,7 @@ func Init(network_layer *networklayer.NetworkLayer) *TransportLayer {
 	netstack.StartProtocol(udp)
 
 	// Start transport layer goroutines
-	netstack.StartLayerDispatchLoops(transport_layer)
+	netstack.StartLayer(transport_layer)
 
 	return transport_layer
 }
@@ -52,44 +51,17 @@ func set_skb_type(skb *netstack.SkBuff) error {
 	// If it's IPv4, set the skb type to IPv4
 	// If it's IPv6, set the skb type to IPv6
 	// If it's neither, error
-	addrType := skb.GetSocket().GetDestinationAddress().GetType()
+	addrType := skb.DestAddr.GetType()
 	if addrType == netstack.AddressTypeIPv4 {
-		skb.SetType(netstack.ProtocolTypeIPv4)
+		skb.ProtocolType = netstack.ProtocolTypeIPv4
 	} else if addrType == netstack.AddressTypeIPv6 {
-		skb.SetType(netstack.ProtocolTypeIPv6)
+		skb.ProtocolType = netstack.ProtocolTypeIPv6
 	} else {
 		return netstack.ErrInvalidAddressType
 	}
 	return nil
 }
 
-/**********************************************************************************************************************
-	Port Manager
-	Data structure to manage ports for a transport protocol
-**********************************************************************************************************************/
-
-type PortNumber uint16
-
-type PortManager struct {
-	current_port   PortNumber
-	assigned_ports map[PortNumber]bool
-}
-
-func NewPortManager() *PortManager {
-	return &PortManager{current_port: 40000, assigned_ports: make(map[PortNumber]bool)}
-}
-
-func (pm *PortManager) GetPort() (PortNumber, error) {
-	for i := pm.current_port; i < 65535; i++ {
-		if !pm.assigned_ports[i] {
-			pm.assigned_ports[i] = true
-			pm.current_port = i
-			return i, nil
-		}
-	}
-	return 0, errors.New("no ports available")
-}
-
-func (pm *PortManager) ReleasePort(port PortNumber) {
-	delete(pm.assigned_ports, port)
+func ConnectionID(src netstack.SockAddr, dst netstack.SockAddr) string {
+	return src.String() + "-" + dst.String()
 }

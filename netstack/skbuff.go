@@ -1,6 +1,7 @@
 package netstack
 
 import (
+	"errors"
 	"log"
 	"os"
 )
@@ -11,42 +12,23 @@ var skb_log = log.New(os.Stdout, "[SKB] ", log.Ldate|log.Lmicroseconds|log.Lshor
 	SkBuff is the struct that represents a packet as it moves through the stack.
 */
 type SkBuff struct {
-	Data []byte
+	Data             []byte
+	ProtocolType     ProtocolType
+	NetworkInterface NetworkInterface
+	L2Header         L2Header
+	L3Header         L3Header
+	L4Header         L4Header
+	RespChan         chan SkbResponse
 
-	ProtocolType
-
-	iface NetworkInterface
-
-	l2_header L2Header
-
-	l3_header L3Header
-
-	l4_header L4Header
-
-	socket Socket
-
-	route route
-
-	resp chan SkbResponse
-}
-
-func (s *SkBuff) GetBytes() []byte {
-	return s.Data
+	// Resp SkbResponse
 }
 
 func NewSkBuff(data []byte) *SkBuff {
 	return &SkBuff{
-		Data: data,
-		resp: make(chan SkbResponse),
+		Data:         data,
+		ProtocolType: ProtocolTypeUnknown,
+		RespChan:     make(chan SkbResponse),
 	}
-}
-
-func (skb *SkBuff) GetType() ProtocolType {
-	return skb.ProtocolType
-}
-
-func (skb *SkBuff) SetType(t ProtocolType) {
-	skb.ProtocolType = t
 }
 
 func (skb *SkBuff) PrependBytes(b []byte) {
@@ -57,69 +39,52 @@ func (skb *SkBuff) StripBytes(n int) {
 	skb.Data = skb.Data[n:]
 }
 
-func (skb *SkBuff) GetRoute() route {
-	return skb.route
-}
-
-func (skb *SkBuff) SetRoute(r route) {
-	skb.route = r
-}
-
-func (skb *SkBuff) GetNetworkInterface() NetworkInterface {
-	return skb.iface
-}
-
-func (skb *SkBuff) SetNetworkInterface(iface NetworkInterface) {
-	skb.iface = iface
-}
-
-func (skb *SkBuff) Resp() SkbResponse {
-	skb_log.Printf("Called Resp")
-	resp := <-skb.resp
-	skb_log.Printf("Resp: %+v", resp)
+func (skb *SkBuff) GetResp() SkbResponse {
+	resp := <-skb.RespChan
 	return resp
 }
 
-/*
-	Header Get/Set methods
-
-	These are used by the protocol handlers to set the L2/L3/L4 headers
-	of the skbuff.
-*/
-
-func (skb *SkBuff) GetL2Header() L2Header {
-	return skb.l2_header
+func (skb *SkBuff) GetType() ProtocolType {
+	return skb.ProtocolType
 }
 
-func (skb *SkBuff) SetL2Header(h L2Header) {
-	skb.l2_header = h
+func (skb *SkBuff) SetType(protocolType ProtocolType) {
+	skb.ProtocolType = protocolType
+}
+
+func (skb *SkBuff) GetNetworkInterface() (NetworkInterface, error) {
+	if skb.NetworkInterface == nil {
+		return nil, errors.New("network interface not set")
+	}
+	return skb.NetworkInterface, nil
+}
+
+func (skb *SkBuff) SetNetworkInterface(netdev NetworkInterface) {
+	skb.NetworkInterface = netdev
+}
+
+func (skb *SkBuff) GetL2Header() L2Header {
+	return skb.L2Header
+}
+
+func (skb *SkBuff) SetL2Header(header L2Header) {
+	skb.L2Header = header
 }
 
 func (skb *SkBuff) GetL3Header() L3Header {
-	return skb.l3_header
+	return skb.L3Header
 }
 
-func (skb *SkBuff) SetL3Header(h L3Header) {
-	skb.l3_header = h
+func (skb *SkBuff) SetL3Header(header L3Header) {
+	skb.L3Header = header
 }
 
 func (skb *SkBuff) GetL4Header() L4Header {
-	return skb.l4_header
+	return skb.L4Header
 }
 
-func (skb *SkBuff) SetL4Header(h L4Header) {
-	skb.l4_header = h
-}
-
-/*
-	Socket methods
-*/
-func (skb *SkBuff) GetSocket() Socket {
-	return skb.socket
-}
-
-func (skb *SkBuff) SetSocket(s Socket) {
-	skb.socket = s
+func (skb *SkBuff) SetL4Header(header L4Header) {
+	skb.L4Header = header
 }
 
 /*
@@ -165,45 +130,28 @@ func (skb_channels SkBuffChannels) TxChan() chan *SkBuff {
 */
 
 type SkbResponse struct {
-	err           error
-	status        int
-	bytes_read    int
-	bytes_written int
-}
-
-func (r SkbResponse) Error() error {
-	return r.err
-}
-
-func (r SkbResponse) Status() int {
-	return r.status
-}
-
-func (r SkbResponse) BytesRead() int {
-	return r.bytes_read
-}
-
-func (r SkbResponse) BytesWritten() int {
-	return r.bytes_written
+	Error        error
+	Status       int
+	BytesRead    int
+	BytesWritten int
 }
 
 func SkbErrorResp(err error) SkbResponse {
 	return SkbResponse{
-		err: err,
+		Error: err,
 	}
 }
 
 func SkbWriteResp(bytes_written int) SkbResponse {
 	return SkbResponse{
-		bytes_written: bytes_written,
+		BytesWritten: bytes_written,
 	}
 }
 
 func (skb *SkBuff) Error(err error) {
-	skb.resp <- SkbErrorResp(err)
+	skb.RespChan <- SkbErrorResp(err)
 }
 
-func (skb *SkBuff) TxSuccess(bytes_written int) {
-	skb_log.Printf("Called TxSuccess with %d bytes written", bytes_written)
-	skb.resp <- SkbWriteResp(bytes_written)
+func (skb *SkBuff) TxSuccess() {
+	skb.RespChan <- SkbWriteResp(len(skb.Data))
 }

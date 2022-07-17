@@ -6,7 +6,6 @@ import (
 	"log"
 
 	"github.com/mattcarp12/go-net/netstack"
-	"github.com/mattcarp12/go-net/netstack/socket"
 )
 
 type ICMPv4 struct {
@@ -129,20 +128,17 @@ func (icmp *ICMPv4) EchoReply(skb *netstack.SkBuff, requestHeader *ICMPv4Header)
 	replySkb := netstack.NewSkBuff(rawReply)
 
 	// Setup the reply skb
-	replySkb.SetNetworkInterface(skb.GetNetworkInterface())
-	replySkb.SetType(netstack.ProtocolTypeICMPv4)
-
-	// Create socket so we can send the ICMP echo reply
-	sk := socket.NewRawSocket()
-	destAddr := netstack.SockAddr{IP: skb.GetL3Header().GetSrcIP()}
-	sk.SetDestinationAddress(destAddr)
-	replySkb.SetSocket(sk)
+	replySkb.NetworkInterface = skb.NetworkInterface
+	replySkb.ProtocolType = netstack.ProtocolTypeICMPv4
+	replySkb.L4ProtocolType = netstack.ProtocolTypeICMPv4
+	replySkb.SrcAddr = skb.DestAddr
+	replySkb.DestAddr = skb.SrcAddr
 
 	// Send the ICMP echo reply to IP
 	icmp.ip.TxChan() <- replySkb
 
 	// Make sure to read the skb response
-	replySkb.Resp()
+	replySkb.GetResp()
 }
 
 // function to handle ICMP destination unreachable

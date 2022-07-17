@@ -7,15 +7,14 @@ import (
 )
 
 type raw_socket struct {
-	netstack.ISocket
+	netstack.SocketMeta
 }
 
 func NewRawSocket() netstack.Socket {
 	s := &raw_socket{
-		ISocket: *netstack.NewSocket(),
+		SocketMeta: *netstack.NewSocketMeta(),
 	}
-	s.SetType(netstack.SocketTypeRaw)
-	s.SetState(netstack.SocketStateClosed)
+	s.Type = netstack.SocketTypeRaw
 	return s
 }
 

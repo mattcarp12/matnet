@@ -130,7 +130,7 @@ func NewLoopback() *LoopbackDevice {
 // read from the write channel
 func (dev *LoopbackDevice) Read() ([]byte, error) {
 	skb := <-dev.TxChan()
-	return skb.GetBytes(), nil
+	return skb.Data, nil
 }
 
 // and write to the read channel

@@ -11,15 +11,14 @@ import (
 */
 
 type udp_socket struct {
-	netstack.ISocket
+	netstack.SocketMeta
 }
 
 func NewUDPSocket() netstack.Socket {
 	s := &udp_socket{
-		ISocket: *netstack.NewSocket(),
+		SocketMeta: *netstack.NewSocketMeta(),
 	}
-	s.SetType(netstack.SocketTypeDatagram)
-	s.SetState(netstack.SocketStateClosed)
+	s.Type = netstack.SocketTypeDatagram
 	return s
 }
 
@@ -52,7 +51,9 @@ func (s *udp_socket) Close() error {
 
 // Read...
 func (s *udp_socket) Read() ([]byte, error) {
-	return []byte{}, nil
+	// Get skb from RxChan
+	skb := <-s.RxChan
+	return skb.Data, nil
 }
 
 // Write...
@@ -68,25 +69,22 @@ func (s *udp_socket) ReadFrom(b []byte, addr *netstack.SockAddr) (int, error) {
 // WriteTo...
 func (sock *udp_socket) WriteTo(b []byte, destAddr netstack.SockAddr) (int, error) {
 	// Set socket destination address
-	sock.SetDestinationAddress(destAddr)
+	sock.DestAddr = destAddr
 
 	// Create new skbuff
 	skb := netstack.NewSkBuff(b)
 
-	// Set socket on skbuff
-	skb.SetSocket(sock)
-
 	// Set the skbuff interface
-	skb.SetNetworkInterface(sock.GetRoute().Iface)
+	skb.NetworkInterface = sock.SocketMeta.Route.Iface
 
 	// Set skbuff type to UDP
-	skb.SetType(netstack.ProtocolTypeUDP)
+	skb.ProtocolType = netstack.ProtocolTypeUDP
 
 	// Send packet to UDP protocol
-	sock.SendSkb(skb)
+	sock.SocketMeta.Protocol.TxChan() <- skb
 
 	// Wait for response from network stack
-	resp := skb.Resp()
+	resp := skb.GetResp()
 
-	return resp.BytesWritten(), resp.Error()
+	return resp.BytesWritten, resp.Error
 }

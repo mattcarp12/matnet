@@ -4,21 +4,12 @@ import (
 	"bufio"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"strconv"
 
 	"github.com/google/uuid"
 )
-
-/******************************************************************************
-	Socket Layer - Interface between the network stack and the application
-******************************************************************************/
-type SocketLayer interface {
-	// Send a syscall to the socket layer
-	SendSyscall(syscall SockSyscallRequest)
-	// Set the socket layer's rx_chan to send responses to the IPC layer
-	SetRxChan(chan SockSyscallResponse)
-}
 
 /****************************************************************************
 	SockSyscall -
@@ -95,12 +86,6 @@ func (resp SockSyscallResponse) Bytes() []byte {
 	Represents an individual socket in the netstack.
 ****************************************************************************/
 type Socket interface {
-	SocketOperations
-	SocketMetaOps
-	SocketSkbOps
-}
-
-type SocketOperations interface {
 	Bind(addr SockAddr) error
 	Listen() error
 	Accept() (net.Conn, error)
@@ -110,36 +95,8 @@ type SocketOperations interface {
 	Write(b []byte) (int, error)
 	ReadFrom(b []byte, addr *SockAddr) (int, error)
 	WriteTo(b []byte, addr SockAddr) (int, error)
-}
 
-type SocketMetaOps interface {
-	GetType() SocketType
-	SetType(t SocketType)
-
-	GetProtocol() Protocol
-	SetProtocol(p Protocol)
-
-	GetSourceAddress() SockAddr
-	SetSourceAddress(addr SockAddr)
-
-	GetDestinationAddress() SockAddr
-	SetDestinationAddress(addr SockAddr)
-
-	GetState() SocketState
-	SetState(SocketState)
-
-	GetID() SockID
-	SetID(id SockID)
-
-	GetRoute() *route
-	SetRoute(r *route)
-
-	GetRxChan() chan *SkBuff
-}
-
-type SocketSkbOps interface {
-	RecvSkb() *SkBuff
-	SendSkb(*SkBuff)
+	SocketMetaOps
 }
 
 // Each socket is identified by a globally unique ID.
@@ -147,8 +104,13 @@ type SockID string
 
 var ErrInvalidSocketID = errors.New("invalid socket ID")
 
-func NewSockID() SockID {
-	return SockID(uuid.New().String())
+func NewSockID(sock_type SocketType) SockID {
+	return SockID(uuid.New().String() + fmt.Sprintf("-%d", sock_type))
+}
+
+func (sid SockID) GetSocketType() SocketType {
+	sock_type, _ := strconv.Atoi(string(sid[len(sid)-1]))
+	return SocketType(sock_type)
 }
 
 type SocketType uint
@@ -161,17 +123,6 @@ const (
 )
 
 var ErrInvalidSocketType = errors.New("invalid socket type")
-
-type SocketState uint
-
-const (
-	SocketStateInvalid SocketState = iota
-	SocketStateUnbound
-	SocketStateBound
-	SocketStateConnected
-	SocketStateListening
-	SocketStateClosed
-)
 
 /****************************************************************************
 	SockAddr -- generic structure for network addresses
@@ -192,14 +143,6 @@ const (
 
 var ErrInvalidAddressType = errors.New("invalid address type")
 
-func (s SockAddr) GetPort() uint16 {
-	return s.Port
-}
-
-func (s SockAddr) GetIP() net.IP {
-	return s.IP
-}
-
 func (s SockAddr) String() string {
 	return s.IP.String() + ":" + strconv.Itoa(int(s.Port))
 }
@@ -215,11 +158,30 @@ func (s SockAddr) GetType() AddressType {
 }
 
 /****************************************************************************
-	ISocket - helper struct for Socket implementations
+	SocketMeta - helper struct for Socket implementations
 	Implements methods common for all sockets
 ****************************************************************************/
+type SocketMetaOps interface {
+	GetMeta() *SocketMeta
+	GetType() SocketType
+	SetType(sockType SocketType)
+	GetProtocol() Protocol
+	SetProtocol(protocol Protocol)
+	GetSrcAddr() SockAddr
+	SetSrcAddr(addr SockAddr)
+	GetDestAddr() SockAddr
+	SetDestAddr(addr SockAddr)
+	GetID() SockID
+	SetID(id SockID)
+	GetRoute() *route
+	SetRoute(route *route)
+	GetNetworkInterface() NetworkInterface
+	SetNetworkInterface(iface NetworkInterface)
+	GetRxChan() chan *SkBuff
+	SetRxChan(rxChan chan *SkBuff)
+}
 
-type ISocket struct {
+type SocketMeta struct {
 	// Socket type
 	Type SocketType
 
@@ -232,14 +194,14 @@ type ISocket struct {
 	// Destination address
 	DestAddr SockAddr
 
-	// Socket state
-	State SocketState
-
 	// Socket ID
 	ID SockID
 
 	// Route
 	Route *route
+
+	// Network interface
+	NetworkInterface NetworkInterface
 
 	// RxChan
 	RxChan chan *SkBuff
@@ -247,76 +209,78 @@ type ISocket struct {
 
 const socket_rx_chan_size = 100
 
-func NewSocket() *ISocket {
-	return &ISocket{
+func NewSocketMeta() *SocketMeta {
+	return &SocketMeta{
 		RxChan: make(chan *SkBuff, socket_rx_chan_size),
 	}
 }
 
-func (s *ISocket) GetType() SocketType {
-	return s.Type
+// Since each socket implementation should *embed* the SocketMeta struct,
+// this method fulfills the interface requirement for each implementation.
+func (meta *SocketMeta) GetMeta() *SocketMeta {
+	return meta
 }
 
-func (s *ISocket) SetType(t SocketType) {
-	s.Type = t
+func (meta *SocketMeta) GetType() SocketType {
+	return meta.Type
 }
 
-func (s *ISocket) GetProtocol() Protocol {
-	return s.Protocol
+func (meta *SocketMeta) SetType(sockType SocketType) {
+	meta.Type = sockType
 }
 
-func (s *ISocket) SetProtocol(p Protocol) {
-	s.Protocol = p
+func (meta *SocketMeta) GetProtocol() Protocol {
+	return meta.Protocol
 }
 
-func (s *ISocket) GetSourceAddress() SockAddr {
-	return s.SrcAddr
+func (meta *SocketMeta) SetProtocol(protocol Protocol) {
+	meta.Protocol = protocol
 }
 
-func (s *ISocket) SetSourceAddress(addr SockAddr) {
-	s.SrcAddr = addr
+func (meta *SocketMeta) GetSrcAddr() SockAddr {
+	return meta.SrcAddr
 }
 
-func (s *ISocket) GetDestinationAddress() SockAddr {
-	return s.DestAddr
+func (meta *SocketMeta) SetSrcAddr(addr SockAddr) {
+	meta.SrcAddr = addr
 }
 
-func (s *ISocket) SetDestinationAddress(addr SockAddr) {
-	s.DestAddr = addr
+func (meta *SocketMeta) GetDestAddr() SockAddr {
+	return meta.DestAddr
 }
 
-func (s *ISocket) GetState() SocketState {
-	return s.State
+func (meta *SocketMeta) SetDestAddr(addr SockAddr) {
+	meta.DestAddr = addr
 }
 
-func (s *ISocket) SetState(state SocketState) {
-	s.State = state
+func (meta *SocketMeta) GetID() SockID {
+	return meta.ID
 }
 
-func (s *ISocket) GetID() SockID {
-	return s.ID
+func (meta *SocketMeta) SetID(id SockID) {
+	meta.ID = id
 }
 
-func (s *ISocket) SetID(id SockID) {
-	s.ID = id
+func (meta *SocketMeta) GetRoute() *route {
+	return meta.Route
 }
 
-func (s *ISocket) RecvSkb() *SkBuff {
-	return <-s.GetProtocol().RxChan()
+func (meta *SocketMeta) SetRoute(route *route) {
+	meta.Route = route
 }
 
-func (s *ISocket) SendSkb(skb *SkBuff) {
-	s.GetProtocol().TxChan() <- skb
+func (meta *SocketMeta) GetNetworkInterface() NetworkInterface {
+	return meta.NetworkInterface
 }
 
-func (s *ISocket) GetRoute() *route {
-	return s.Route
+func (meta *SocketMeta) SetNetworkInterface(iface NetworkInterface) {
+	meta.NetworkInterface = iface
 }
 
-func (s *ISocket) SetRoute(route *route) {
-	s.Route = route
+func (meta *SocketMeta) GetRxChan() chan *SkBuff {
+	return meta.RxChan
 }
 
-func (s *ISocket) GetRxChan() chan *SkBuff {
-	return s.RxChan
+func (meta *SocketMeta) SetRxChan(rxChan chan *SkBuff) {
+	meta.RxChan = rxChan
 }

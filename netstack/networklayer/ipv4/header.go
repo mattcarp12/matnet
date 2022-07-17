@@ -165,7 +165,7 @@ func (h *IPv4Header) GetL4Type() netstack.ProtocolType {
 }
 
 func GetIPProtocolType(skb *netstack.SkBuff) (uint8, error) {
-	switch skb.GetL4Header().GetType() {
+	switch skb.L4ProtocolType {
 	case netstack.ProtocolTypeICMPv4:
 		return ProtocolICMP, nil
 	case netstack.ProtocolTypeTCP:

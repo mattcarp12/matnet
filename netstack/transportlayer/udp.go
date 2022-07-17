@@ -2,7 +2,6 @@ package transportlayer
 
 import (
 	"encoding/binary"
-	"errors"
 	"net"
 
 	"github.com/mattcarp12/go-net/netstack"
@@ -51,17 +50,17 @@ func (h *UdpHeader) GetDstPort() uint16 {
 }
 
 type UdpPsuedoHeader struct {
-	SrcAddr net.IP
-	DstAddr net.IP
-	Zero    uint8
-	Proto   uint8
-	Length  uint16
+	SrcIP  net.IP
+	DstIP  net.IP
+	Zero   uint8
+	Proto  uint8
+	Length uint16
 }
 
 func (ph *UdpPsuedoHeader) Marshal() []byte {
 	b := []byte{}
-	b = append(b, ph.SrcAddr...)
-	b = append(b, ph.DstAddr...)
+	b = append(b, ph.SrcIP...)
+	b = append(b, ph.DstIP...)
 	b = append(b, ph.Zero)
 	b = append(b, ph.Proto)
 	b = append(b, byte(ph.Length>>8))
@@ -75,13 +74,11 @@ func (ph *UdpPsuedoHeader) Marshal() []byte {
 
 type UdpProtocol struct {
 	netstack.IProtocol
-	port_manager   *PortManager
 }
 
 func NewUDP() *UdpProtocol {
 	udp := &UdpProtocol{
-		IProtocol:      netstack.NewIProtocol(netstack.ProtocolTypeUDP),
-		port_manager:   NewPortManager(),
+		IProtocol: netstack.NewIProtocol(netstack.ProtocolTypeUDP),
 	}
 	return udp
 }
@@ -91,13 +88,14 @@ func (udp *UdpProtocol) HandleRx(skb *netstack.SkBuff) {
 	h := &UdpHeader{}
 
 	// Unmarshal the UDP header, handle errors
-	if err := h.Unmarshal(skb.GetBytes()); err != nil {
+	if err := h.Unmarshal(skb.Data); err != nil {
 		skb.Error(err)
 		return
 	}
 
-	// Set the L4 header
-	skb.SetL4Header(h)
+	// Set ports on skb
+	skb.SrcAddr.Port = h.SrcPort
+	skb.DestAddr.Port = h.DstPort
 
 	// TODO: Handle fragmentation, possibly reassemble
 
@@ -112,18 +110,13 @@ func (udp *UdpProtocol) HandleRx(skb *netstack.SkBuff) {
 func (udp *UdpProtocol) HandleTx(skb *netstack.SkBuff) {
 	log.Printf("HandleTx -- UDP packet")
 
-	// Check for existance of socket
-	if skb.GetSocket() == nil {
-		skb.Error(errors.New("socket does not exist on skb"))
-		return
-	}
-
 	// setup the UDP header
 	if h, err := udp.make_udp_header(skb); err != nil {
 		skb.Error(err)
 		return
 	} else {
-		skb.SetL4Header(h)
+		skb.SrcAddr.Port = h.SrcPort
+		skb.DestAddr.Port = h.DstPort
 		skb.PrependBytes(h.Marshal())
 	}
 
@@ -142,18 +135,12 @@ func (udp *UdpProtocol) make_udp_header(skb *netstack.SkBuff) (*UdpHeader, error
 	// Create a new UDP header
 	h := &UdpHeader{}
 
-	// Set destination port
-	h.DstPort = skb.GetSocket().GetDestinationAddress().GetPort()
-
-	// Set source port
-	if srcPort, err := udp.port_manager.GetPort(); err != nil {
-		return nil, err
-	} else {
-		h.SrcPort = uint16(srcPort)
-	}
+	// Set port fields on header
+	h.DstPort = skb.DestAddr.Port
+	h.SrcPort = skb.SrcAddr.Port
 
 	// Set length
-	h.Length = uint16(len(skb.GetBytes()) + 8)
+	h.Length = uint16(len(skb.Data) + 8)
 
 	// Set checksum
 	if err := set_udp_checksum(skb, h); err != nil {
@@ -170,15 +157,15 @@ func set_udp_checksum(skb *netstack.SkBuff, h *UdpHeader) error {
 	// Make pseudo header
 	// TODO: Handle IPv6
 	p := &UdpPsuedoHeader{
-		SrcAddr: skb.GetSocket().GetSourceAddress().GetIP().To4(),
-		DstAddr: skb.GetSocket().GetDestinationAddress().GetIP().To4(),
-		Zero:    0,
-		Proto:   17,
-		Length:  h.Length,
+		SrcIP:  skb.SrcAddr.IP.To4(),
+		DstIP:  skb.DestAddr.IP.To4(),
+		Zero:   0,
+		Proto:  17,
+		Length: h.Length,
 	}
 
 	// Create checksum buffer
-	b := append(h.Marshal(), skb.GetBytes()...)
+	b := append(h.Marshal(), skb.Data...)
 	b = append(p.Marshal(), b...)
 
 	// Calculate checksum

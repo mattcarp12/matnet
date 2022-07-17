@@ -1,6 +1,7 @@
 package socket
 
 import (
+	"errors"
 	logging "log"
 	"os"
 
@@ -10,65 +11,51 @@ import (
 var log = logging.New(os.Stdout, "[Socket] ", logging.Ldate|logging.Lmicroseconds|logging.Lshortfile)
 
 /*
-	socket_layer is the interface between the IPC layer and the netstack
+	SocketLayer is the interface between the IPC layer and the netstack
 */
 
-type socket_layer struct {
+type SocketLayer struct {
 	netstack.ILayer
-	tx_chan         chan netstack.SockSyscallRequest
-	rx_chan         chan netstack.SockSyscallResponse
-	socket_map      map[netstack.SockID]netstack.Socket
+	SyscallReqChan  chan netstack.SockSyscallRequest
+	SyscallRespChan chan netstack.SockSyscallResponse
 	routing_table   netstack.RoutingTable
 	transport_layer netstack.Layer
 }
 
-func (s *socket_layer) SendSyscall(syscall netstack.SockSyscallRequest) {
-	s.tx_chan <- syscall
-}
-
-func (s *socket_layer) SetRxChan(rx_chan chan netstack.SockSyscallResponse) {
-	s.rx_chan = rx_chan
-}
-
-func (s *socket_layer) resp(resp netstack.SockSyscallResponse) {
-	log.Printf("Got response from network stack: %+v\n", resp)
-	s.rx_chan <- resp
-}
-
-func (s *socket_layer) err(err error, resp netstack.SockSyscallResponse) {
+func (s *SocketLayer) err(err error, resp netstack.SockSyscallResponse) {
 	resp.Err = err
-	s.resp(resp)
+	s.SyscallRespChan <- resp
 }
 
-// These calls don't block, they send their responses to the socket layers response channel,
+// These calls don't block, they send their responses to the socket layer's response channel,
 // which is then handled by the IPC layer.
-func (s *socket_layer) handle() {
+func (socketLayer *SocketLayer) handle() {
 	for {
 		// read from tx_chan
-		syscall := <-s.tx_chan
+		syscall := <-socketLayer.SyscallReqChan
 
 		// handle syscall
 		switch syscall.SyscallType {
 		case netstack.SyscallSocket:
-			s.socket(syscall)
+			socketLayer.socket(syscall)
 		case netstack.SyscallBind:
-			s.bind(syscall)
+			socketLayer.bind(syscall)
 		case netstack.SyscallListen:
-			s.listen(syscall)
+			socketLayer.listen(syscall)
 		case netstack.SyscallAccept:
-			s.accept(syscall)
+			socketLayer.accept(syscall)
 		case netstack.SyscallConnect:
-			s.connect(syscall)
+			socketLayer.connect(syscall)
 		case netstack.SyscallClose:
-			s.close(syscall)
+			socketLayer.close(syscall)
 		case netstack.SyscallRead:
-			s.read(syscall)
+			socketLayer.read(syscall)
 		case netstack.SyscallWrite:
-			s.write(syscall)
+			socketLayer.write(syscall)
 		case netstack.SyscallReadFrom:
-			s.readfrom(syscall)
+			socketLayer.readfrom(syscall)
 		case netstack.SyscallWriteTo:
-			s.writeto(syscall)
+			socketLayer.writeto(syscall)
 		default:
 			panic("unknown syscall type")
 		}
@@ -76,12 +63,12 @@ func (s *socket_layer) handle() {
 }
 
 // socket creates a new socket
-func (sm *socket_layer) socket(syscall netstack.SockSyscallRequest) {
+func (sock_layer *SocketLayer) socket(syscall netstack.SockSyscallRequest) {
 	// create response structure
 	resp := syscall.MakeResponse()
 
 	// Generate uuid string
-	sock_id := netstack.NewSockID()
+	sock_id := netstack.NewSockID(syscall.SockType)
 
 	// Create socket
 	var sock netstack.Socket
@@ -93,63 +80,115 @@ func (sm *socket_layer) socket(syscall netstack.SockSyscallRequest) {
 	case netstack.SocketTypeRaw:
 		sock = NewRawSocket()
 	default:
-		sm.err(netstack.ErrInvalidSocketType, resp)
+		sock_layer.err(netstack.ErrInvalidSocketType, resp)
+		return
 	}
 
 	// Get Protocol from transport layer
 	protocolType, err := sock_type_to_protocol(syscall.SockType)
 	if err != nil {
-		sm.err(err, resp)
+		sock_layer.err(err, resp)
+		return
 	}
 
-	protocol, err := sm.transport_layer.GetProtocol(protocolType)
+	l4_protocol, err := sock_layer.transport_layer.GetProtocol(protocolType)
 	if err != nil {
-		sm.err(err, resp)
+		sock_layer.err(err, resp)
+		return
 	}
 
 	// Set Protocol on socket
-	sock.SetProtocol(protocol)
+	sock.SetProtocol(l4_protocol)
 
-	// Add to map
+	// Set socket id
 	sock.SetID(sock_id)
+
+	// get socket manager for this protocol
+	sock_protocol, err := sock_layer.GetProtocol(protocolType)
+	if err != nil {
+		sock_layer.err(err, resp)
+		return
+	}
+
+	// Cast to socket manager
+	sm := sock_protocol.(*socket_manager)
+
+	// Assign the socket a source port
+	err = sm.assign_port(sock)
+	if err != nil {
+		sock_layer.err(err, resp)
+		return
+	}
+
+	// Add to map. At this point the socket doesn't have a port associated to it,
+	// so we can't add an entry to the port_map.
 	sm.socket_map[sock_id] = sock
 
 	// Send response
 	resp.SockID = sock_id
-	sm.resp(resp)
+	sock_layer.SyscallRespChan <- resp
 }
 
-func (sm *socket_layer) bind(syscall netstack.SockSyscallRequest) {}
+func (sm *SocketLayer) bind(syscall netstack.SockSyscallRequest) {}
 
-func (sm *socket_layer) listen(syscall netstack.SockSyscallRequest) {}
+func (sm *SocketLayer) listen(syscall netstack.SockSyscallRequest) {}
 
-func (sm *socket_layer) accept(syscall netstack.SockSyscallRequest) {}
+func (sm *SocketLayer) accept(syscall netstack.SockSyscallRequest) {}
 
-func (sm *socket_layer) connect(syscall netstack.SockSyscallRequest) {}
-
-func (sm *socket_layer) close(syscall netstack.SockSyscallRequest) {
+func (sm *SocketLayer) connect(syscall netstack.SockSyscallRequest) {
 	// Get socket from map
-	sock, ok := sm.socket_map[syscall.SockID]
-	if !ok {
+	sock, err := sm.get_socket(syscall.SockType, syscall.SockID)
+	if err != nil {
 		sm.err(netstack.ErrInvalidSocketID, syscall.MakeResponse())
 		return
 	}
 
-	// Close socket
-	err := sock.Close()
+	// Set destination address
+	destAddr := syscall.Addr
+	sock.SetDestAddr(destAddr)
+
+	// lookup the route for this destination
+	route := sm.routing_table.Lookup(destAddr.IP)
+	sock.SetRoute(&route)
+
+	// Set the socket's source address
+	sourceAddr := netstack.SockAddr{IP: route.Iface.GetNetworkAddr()}
+	sock.SetSrcAddr(sourceAddr)
+
+	// Connect to destination (blocking call)
+	err = sock.Connect(destAddr)
 
 	// Handle the response
 	resp := syscall.MakeResponse()
 	resp.Err = err
 
 	// Send response back to socket layer
-	sm.resp(resp)
+	sm.SyscallRespChan <- resp
 }
 
-func (sm *socket_layer) read(syscall netstack.SockSyscallRequest) {
+func (sm *SocketLayer) close(syscall netstack.SockSyscallRequest) {
 	// Get socket from map
-	sock, ok := sm.socket_map[syscall.SockID]
-	if !ok {
+	sock, err := sm.get_socket(syscall.SockType, syscall.SockID)
+	if err != nil {
+		sm.err(netstack.ErrInvalidSocketID, syscall.MakeResponse())
+		return
+	}
+
+	// Close socket
+	err = sock.Close()
+
+	// Handle the response
+	resp := syscall.MakeResponse()
+	resp.Err = err
+
+	// Send response back to socket layer
+	sm.SyscallRespChan <- resp
+}
+
+func (sm *SocketLayer) read(syscall netstack.SockSyscallRequest) {
+	// Get socket from map
+	sock, err := sm.get_socket(syscall.SockType, syscall.SockID)
+	if err != nil {
 		sm.err(netstack.ErrInvalidSocketID, syscall.MakeResponse())
 		return
 	}
@@ -163,33 +202,31 @@ func (sm *socket_layer) read(syscall netstack.SockSyscallRequest) {
 	resp.Data = data
 
 	// Send response back to socket layer
-	sm.resp(resp)
+	sm.SyscallRespChan <- resp
 }
 
-func (sm *socket_layer) write(syscall netstack.SockSyscallRequest) {}
+func (sm *SocketLayer) write(syscall netstack.SockSyscallRequest) {}
 
-func (sm *socket_layer) readfrom(syscall netstack.SockSyscallRequest) {}
+func (sm *SocketLayer) readfrom(syscall netstack.SockSyscallRequest) {}
 
-func (sm *socket_layer) writeto(syscall netstack.SockSyscallRequest) {
-	log.Printf("Writing to socket!!!\n")
-
+func (sm *SocketLayer) writeto(syscall netstack.SockSyscallRequest) {
 	// Get socket from map
-	sock, ok := sm.socket_map[syscall.SockID]
-	if !ok {
+	sock, err := sm.get_socket(syscall.SockType, syscall.SockID)
+	if err != nil {
 		sm.err(netstack.ErrInvalidSocketID, syscall.MakeResponse())
 		return
 	}
 
 	// Lookup the route to the destination
 	dest := syscall.Addr
-	route := sm.routing_table.Lookup(dest.GetIP())
+	route := sm.routing_table.Lookup(dest.IP)
 	sourceAddr := netstack.SockAddr{IP: route.Iface.GetNetworkAddr()}
 
 	// Set the route on the socket
 	sock.SetRoute(&route)
 
 	// set the source address on the socket
-	sock.SetSourceAddress(sourceAddr)
+	sock.SetSrcAddr(sourceAddr)
 
 	// Pass the skb to the socket (blocking call)
 	n, err := sock.WriteTo(syscall.Data, syscall.Addr)
@@ -200,7 +237,7 @@ func (sm *socket_layer) writeto(syscall netstack.SockSyscallRequest) {
 	resp.Err = err
 
 	// Send response back to socket layer
-	sm.resp(resp)
+	sm.SyscallRespChan <- resp
 }
 
 func sock_type_to_protocol(sock_type netstack.SocketType) (netstack.ProtocolType, error) {
@@ -216,11 +253,36 @@ func sock_type_to_protocol(sock_type netstack.SocketType) (netstack.ProtocolType
 	}
 }
 
-func Init(transport_layer netstack.Layer, routing_table netstack.RoutingTable) *socket_layer {
-	sl := &socket_layer{
-		socket_map: make(map[netstack.SockID]netstack.Socket),
-		tx_chan:    make(chan netstack.SockSyscallRequest),
-		rx_chan:    make(chan netstack.SockSyscallResponse),
+func (sock_layer *SocketLayer) get_socket(sock_type netstack.SocketType, sock_id netstack.SockID) (netstack.Socket, error) {
+	// Get protocol from transport layer
+	protocolType, err := sock_type_to_protocol(sock_type)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get socket manager for this protocol
+	sock_protocol, err := sock_layer.GetProtocol(protocolType)
+	if err != nil {
+		return nil, err
+	}
+
+	// Cast to socket manager
+	sm := sock_protocol.(*socket_manager)
+
+	// Get socket from map
+	sock, ok := sm.socket_map[sock_id]
+	if !ok {
+		return nil, netstack.ErrInvalidSocketID
+	}
+
+	return sock, nil
+}
+
+func Init(transport_layer netstack.Layer, routing_table netstack.RoutingTable) *SocketLayer {
+	sl := &SocketLayer{
+		// socket_map: make(map[netstack.SockID]netstack.Socket),
+		SyscallReqChan:  make(chan netstack.SockSyscallRequest),
+		SyscallRespChan: make(chan netstack.SockSyscallResponse),
 	}
 	sl.SkBuffReaderWriter = netstack.NewSkBuffChannels()
 	sl.routing_table = routing_table
@@ -240,6 +302,14 @@ func Init(transport_layer netstack.Layer, routing_table netstack.RoutingTable) *
 	// so that the transport layer can send packets to the socket layer
 	transport_layer.SetNextLayer(sl)
 
+	// Start the socket managers
+	netstack.StartProtocol(udp_socket_manager)
+	netstack.StartProtocol(tcp_socket_manager)
+	netstack.StartProtocol(raw_socket_manager)
+
+	// Start the socket layer
+	netstack.StartLayer(sl)
+
 	go sl.handle()
 
 	return sl
@@ -249,41 +319,34 @@ func Init(transport_layer netstack.Layer, routing_table netstack.RoutingTable) *
 	Socket Manager
 	Data structure to manage sockets for a transport protocol
 **********************************************************************************************************************/
-type PortNumber uint16
 
 type socket_manager struct {
 	netstack.IProtocol
-	sockets map[PortNumber]netstack.Socket
+	port_manager *port_manager
+	socket_map   map[netstack.SockID]netstack.Socket
+	port_map     map[uint16]netstack.SockID
 }
 
 func NewSocketManager(protocol_type netstack.ProtocolType) *socket_manager {
 	return &socket_manager{
-		IProtocol: netstack.NewIProtocol(protocol_type),
-		sockets:   make(map[PortNumber]netstack.Socket),
+		IProtocol:    netstack.NewIProtocol(protocol_type),
+		port_manager: NewPortManager(),
+		socket_map:   make(map[netstack.SockID]netstack.Socket),
+		port_map:     make(map[uint16]netstack.SockID),
 	}
-}
-
-func (sm *socket_manager) get(port PortNumber) netstack.Socket {
-	return sm.sockets[port]
-}
-
-func (sm *socket_manager) add(port PortNumber, socket netstack.Socket) {
-	sm.sockets[port] = socket
-}
-
-func (sm *socket_manager) remove(port PortNumber) {
-	delete(sm.sockets, port)
 }
 
 func (sm *socket_manager) HandleRx(skb *netstack.SkBuff) {
 	// Get the port number from the skb
-	port := PortNumber(skb.GetL4Header().GetDstPort())
+	port := skb.L4Header.GetDstPort()
 
 	// Get the socket from the map
-	sock := sm.get(port)
+	sock_id := sm.port_map[port]
+	sock := sm.socket_map[sock_id]
 
 	// If the socket is nil, then we don't have a socket for this port
 	if sock == nil {
+		log.Printf("No socket for port %d\n", port)
 		return
 	}
 
@@ -293,3 +356,51 @@ func (sm *socket_manager) HandleRx(skb *netstack.SkBuff) {
 
 // This is not used for the socket layer
 func (sm *socket_manager) HandleTx(skb *netstack.SkBuff) {}
+
+func (sm *socket_manager) assign_port(sock netstack.Socket) error {
+	// Get port number from port manager
+	port, err := sm.port_manager.GetUnusedPort()
+	if err != nil {
+		return err
+	}
+
+	sock.SetSrcAddr(netstack.SockAddr{
+		IP:   sock.GetSrcAddr().IP,
+		Port: port,
+	})
+
+	// Add socket to map
+	sm.port_map[port] = sock.GetID()
+
+	return nil
+}
+
+/**********************************************************************************************************************
+	Port Manager
+	Data structure to manage ports for a transport protocol
+**********************************************************************************************************************/
+
+type port_manager struct {
+	current_port   uint16
+	assigned_ports map[uint16]bool
+}
+
+func NewPortManager() *port_manager {
+	return &port_manager{current_port: 40000, assigned_ports: make(map[uint16]bool)}
+}
+
+func (pm *port_manager) GetUnusedPort() (uint16, error) {
+	// TODO: Make this more efficient. Maybe use a priority queue?
+	for i := pm.current_port; i < 65535; i++ {
+		if !pm.assigned_ports[i] {
+			pm.assigned_ports[i] = true
+			pm.current_port = i
+			return i, nil
+		}
+	}
+	return 0, errors.New("no ports available")
+}
+
+func (pm *port_manager) ReleasePort(port uint16) {
+	delete(pm.assigned_ports, port)
+}
