@@ -1,26 +1,19 @@
 package linklayer
 
 import (
-	logging "log"
 	"net"
-	"os"
 
-	"github.com/mattcarp12/go-net/netstack"
-	"github.com/mattcarp12/go-net/netstack/linklayer/ethernet"
-	"github.com/mattcarp12/go-net/tuntap"
+	"github.com/mattcarp12/matnet/netstack"
+	"github.com/mattcarp12/matnet/tuntap"
 )
-
-var log = logging.New(os.Stdout, "[LinkLayer] ", logging.Ldate|logging.Lmicroseconds|logging.Lshortfile)
 
 type LinkLayer struct {
 	netstack.ILayer
-
-	// TODO: support multiple devices
 	tap  *TAPDevice
 	loop *LoopbackDevice
 }
 
-func NewLinkLayer(tap *TAPDevice, loop *LoopbackDevice, eth *ethernet.Ethernet) *LinkLayer {
+func NewLinkLayer(tap *TAPDevice, loop *LoopbackDevice, eth *EthernetProtocol) *LinkLayer {
 	ll := &LinkLayer{}
 	ll.SkBuffReaderWriter = netstack.NewSkBuffChannels()
 	ll.AddProtocol(eth)
@@ -29,33 +22,46 @@ func NewLinkLayer(tap *TAPDevice, loop *LoopbackDevice, eth *ethernet.Ethernet) 
 	return ll
 }
 
-func (ll *LinkLayer) SetNeighborProtocol(neigh netstack.NeighborProtocol) {
+func (ll *LinkLayer) SetNeighborProtocol(neigh NeighborProtocol) {
 	eth, err := ll.GetProtocol(netstack.ProtocolTypeEthernet)
 	if err != nil {
 		panic(err)
 	}
-	eth.(*ethernet.Ethernet).SetNeighborProtocol(neigh)
+	eth.(*EthernetProtocol).SetNeighborProtocol(neigh)
 }
+
+const DefaultIPAddr = "10.88.45.69"
+const DefaultGateway = "10.88.45.1"
 
 func Init() (*LinkLayer, netstack.RoutingTable) {
 	// Create network devices
-	tapConfig := IfaceConfig{
-		Name:    "tap0",
-		IP:      net.IPv4(10, 88, 45, 69),
-		Netmask: net.IPv4Mask(255, 255, 255, 0),
-		Gateway: net.IPv4(10, 88, 45, 1),
-		MAC:     net.HardwareAddr{0xde, 0xad, 0xbe, 0xef, 0xde, 0xad},
-		Mtu:     1500,
-	}
+	tap := NewTap(
+		tuntap.TapInit("tap0", tuntap.DefaultIPv4Addr),
+		"tap0",
+		net.HardwareAddr{0xde, 0xad, 0xbe, 0xef, 0xde, 0xad},
+		[]netstack.IfAddr{
+			{
+				IP:      net.ParseIP(DefaultIPAddr),
+				Netmask: net.IPv4Mask(255, 255, 255, 0),
+				Gateway: net.ParseIP(DefaultGateway),
+			},
+		},
+	)
 
-	tap := NewTap(tuntap.TapInit("tap0", tuntap.DefaultIPv4Addr), tapConfig)
 	loop := NewLoopback()
 
 	// Create L2 protocols
-	eth := ethernet.NewEthernet()
+	eth := NewEthernet()
 
 	// Create Link Layer
 	link_layer := NewLinkLayer(tap, loop, eth)
+
+	arp := NewARP()
+	arp.SetLayer(link_layer)
+
+	neigh := NewNeighborSubsystem(arp)
+
+	link_layer.SetNeighborProtocol(neigh)
 
 	// Give Devices pointers to Link Layer
 	tap.LinkLayer = link_layer
@@ -76,9 +82,16 @@ func Init() (*LinkLayer, netstack.RoutingTable) {
 
 	// Make routing table
 	rt := netstack.NewRoutingTable()
-	tap_route := rt.AddConnectedRoute(tap)
-	rt.SetDefaultRoute(*tap_route)
-	rt.AddConnectedRoute(loop)
+	rt.AddConnectedRoutes(tap)
+	rt.SetDefaultRoute(
+		net.IPNet{
+			IP:   net.ParseIP(DefaultIPAddr),
+			Mask: net.IPv4Mask(255, 255, 255, 0),
+		},
+		net.ParseIP(DefaultGateway),
+		tap,
+	)
+	rt.AddConnectedRoutes(loop)
 
 	return link_layer, rt
 }

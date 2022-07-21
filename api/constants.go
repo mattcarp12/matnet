@@ -1,12 +1,15 @@
 package api
 
-import "github.com/mattcarp12/go-net/netstack"
+import (
+	"github.com/mattcarp12/matnet/netstack"
+	"github.com/mattcarp12/matnet/netstack/socket"
+)
 
 // Socket type constants
 const (
-	SOCK_STREAM = netstack.SocketTypeStream
-	SOCK_DGRAM  = netstack.SocketTypeDatagram
-	SOCK_RAW    = netstack.SocketTypeRaw
+	SOCK_STREAM = socket.SocketTypeStream
+	SOCK_DGRAM  = socket.SocketTypeDatagram
+	SOCK_RAW    = socket.SocketTypeRaw
 )
 
 /*

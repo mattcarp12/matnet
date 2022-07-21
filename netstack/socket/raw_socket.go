@@ -2,24 +2,22 @@ package socket
 
 import (
 	"net"
-
-	"github.com/mattcarp12/go-net/netstack"
 )
 
 type raw_socket struct {
-	netstack.SocketMeta
+	SocketMeta
 }
 
-func NewRawSocket() netstack.Socket {
+func NewRawSocket() Socket {
 	s := &raw_socket{
-		SocketMeta: *netstack.NewSocketMeta(),
+		SocketMeta: *NewSocketMeta(),
 	}
-	s.Type = netstack.SocketTypeRaw
+	s.Type = SocketTypeRaw
 	return s
 }
 
 // Bind...
-func (s *raw_socket) Bind(addr netstack.SockAddr) error {
+func (s *raw_socket) Bind(addr SockAddr) error {
 	return nil
 }
 
@@ -34,7 +32,7 @@ func (s *raw_socket) Accept() (net.Conn, error) {
 }
 
 // Connect...
-func (s *raw_socket) Connect(addr netstack.SockAddr) error {
+func (s *raw_socket) Connect(addr SockAddr) error {
 	return nil
 }
 
@@ -54,11 +52,11 @@ func (s *raw_socket) Write(b []byte) (int, error) {
 }
 
 // ReadFrom...
-func (s *raw_socket) ReadFrom(b []byte, addr *netstack.SockAddr) (int, error) {
+func (s *raw_socket) ReadFrom(b []byte, addr *SockAddr) (int, error) {
 	return 0, nil
 }
 
 // WriteTo...
-func (s *raw_socket) WriteTo(b []byte, addr netstack.SockAddr) (int, error) {
+func (s *raw_socket) WriteTo(b []byte, addr SockAddr) (int, error) {
 	return 0, nil
 }

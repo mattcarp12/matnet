@@ -3,37 +3,36 @@ package linklayer
 import (
 	"net"
 
-	"github.com/mattcarp12/go-net/netstack"
-	"github.com/mattcarp12/go-net/tuntap"
+	"github.com/mattcarp12/matnet/netstack"
+	"github.com/mattcarp12/matnet/tuntap"
 )
-
-type IfaceConfig struct {
-	Name    string
-	IP      net.IP
-	MAC     net.HardwareAddr
-	Netmask net.IPMask
-	Gateway net.IP
-	Mtu     uint16
-}
 
 // Iface contains the common attributes for all network devices.
 // Each device type should embed this struct.
 type Iface struct {
-	IfaceConfig
-	RxPackets uint64
-	TxPackets uint64
-	Type      netstack.ProtocolType
-	txChan    chan *netstack.SkBuff
-	RxHandler func([]byte)
+	Name   string
+	HwAddr net.HardwareAddr
+	Mtu    uint16
+
+	// Each interface maintains a list of addresses, since some may, for example,
+	// have both an IPv4 and IPv6 address.
+	IfAddrs []netstack.IfAddr
+
+	// The type of L2 protocol that this interface supports.
+	IfType netstack.ProtocolType
+
+	tx_chan   chan *netstack.SkBuff
 	LinkLayer *LinkLayer
+
+	// TODO: Add interface statistics (low priority)
 }
 
 func (dev *Iface) GetType() netstack.ProtocolType {
-	return dev.Type
+	return dev.IfType
 }
 
 func (dev *Iface) TxChan() chan *netstack.SkBuff {
-	return dev.txChan
+	return dev.tx_chan
 }
 
 func (dev *Iface) HandleRx(data []byte) {
@@ -45,26 +44,27 @@ func (dev *Iface) HandleRx(data []byte) {
 	skb.SetType(dev.GetType())
 
 	// Set pointer to the NetworkInterface that this packet came in on
-	skb.SetNetworkInterface(dev)
+	skb.SetRxIface(dev)
 
 	// Pass it to the link layer for further processing
 	dev.LinkLayer.RxChan() <- skb
 }
 
 func (dev *Iface) GetHWAddr() net.HardwareAddr {
-	return dev.MAC
+	return dev.HwAddr
 }
 
-func (dev *Iface) GetNetworkAddr() net.IP {
-	return dev.IP
+func (iface *Iface) GetIfAddrs() []netstack.IfAddr {
+	return iface.IfAddrs
 }
 
-func (dev *Iface) GetNetmask() net.IPMask {
-	return dev.Netmask
-}
-
-func (dev *Iface) GetGateway() net.IP {
-	return dev.Gateway
+func (iface *Iface) HasIPAddr(ip net.IP) bool {
+	for _, ifAddr := range iface.IfAddrs {
+		if ifAddr.IP.Equal(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 func (dev *Iface) Read() ([]byte, error) {
@@ -84,12 +84,14 @@ type TAPDevice struct {
 	tap *tuntap.Interface
 }
 
-func NewTap(tap *tuntap.Interface, config IfaceConfig) *TAPDevice {
+func NewTap(tap *tuntap.Interface, name string, hwAddr net.HardwareAddr, addrs []netstack.IfAddr) *TAPDevice {
 	netdev := TAPDevice{}
+	netdev.Name = name
 	netdev.tap = tap
-	netdev.IfaceConfig = config
-	netdev.Type = netstack.ProtocolTypeEthernet
-	netdev.txChan = make(chan *netstack.SkBuff)
+	netdev.HwAddr = hwAddr
+	netdev.IfAddrs = addrs
+	netdev.IfType = netstack.ProtocolTypeEthernet
+	netdev.tx_chan = make(chan *netstack.SkBuff)
 
 	return &netdev
 }
@@ -106,7 +108,7 @@ func (dev *TAPDevice) Write(data []byte) error {
 }
 
 /******************************************************************************
-Loopback device
+	Loopback device
 *******************************************************************************/
 
 type LoopbackDevice struct {
@@ -117,12 +119,16 @@ type LoopbackDevice struct {
 func NewLoopback() *LoopbackDevice {
 	netdev := LoopbackDevice{}
 	netdev.Name = "lo"
-	netdev.IP = net.IPv4(127, 0, 0, 1)
-	netdev.MAC = net.HardwareAddr{0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
-	netdev.Netmask = net.IPv4Mask(255, 0, 0, 0)
+	netdev.IfAddrs = []netstack.IfAddr{
+		{
+			IP:      net.IPv4(127, 0, 0, 1),
+			Netmask: net.IPv4Mask(255, 255, 255, 255),
+		},
+	}
+	netdev.HwAddr = net.HardwareAddr{0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 	netdev.Mtu = 1500
-	netdev.Type = netstack.ProtocolTypeEthernet
-	netdev.txChan = make(chan *netstack.SkBuff)
+	netdev.IfType = netstack.ProtocolTypeEthernet
+	netdev.tx_chan = make(chan *netstack.SkBuff)
 	netdev.rx_chan = make(chan []byte)
 	return &netdev
 }

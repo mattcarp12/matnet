@@ -1,13 +1,14 @@
 package api
 
-import "github.com/mattcarp12/go-net/netstack"
+import (
+	"github.com/mattcarp12/matnet/netstack/socket"
+)
 
 // Socket function creates a new socket
-func Socket(sock_type netstack.SocketType) (netstack.SockID, error) {
-
+func Socket(sock_type socket.SocketType) (socket.SockID, error) {
 	// Create a socket request object
-	req := netstack.SockSyscallRequest{
-		SyscallType: netstack.SyscallSocket,
+	req := socket.SockSyscallRequest{
+		SyscallType: socket.SyscallSocket,
 		SockType:    sock_type,
 	}
 
@@ -20,13 +21,13 @@ func Socket(sock_type netstack.SocketType) (netstack.SockID, error) {
 	return resp.SockID, resp.Err
 }
 
-func Connect(sock netstack.SockID, dest SockAddr) error {
+func Connect(sock socket.SockID, dest SockAddr) error {
 	// Create a connect request object
-	req := netstack.SockSyscallRequest{
-		SyscallType: netstack.SyscallConnect,
+	req := socket.SockSyscallRequest{
+		SyscallType: socket.SyscallConnect,
 		SockID:      sock,
 		SockType:    sock.GetSocketType(),
-		Addr:        netstack.SockAddr(dest),
+		Addr:        socket.SockAddr(dest),
 	}
 
 	resp, err := ipc_send_recv(req)
@@ -37,10 +38,10 @@ func Connect(sock netstack.SockID, dest SockAddr) error {
 	return resp.Err
 }
 
-func Write(sock netstack.SockID, data []byte, flags int) error {
+func Write(sock socket.SockID, data []byte, flags int) error {
 	// Create a write request object
-	req := netstack.SockSyscallRequest{
-		SyscallType: netstack.SyscallWrite,
+	req := socket.SockSyscallRequest{
+		SyscallType: socket.SyscallWrite,
 		SockID:      sock,
 		SockType:    sock.GetSocketType(),
 		Data:        data,
@@ -55,15 +56,15 @@ func Write(sock netstack.SockID, data []byte, flags int) error {
 	return resp.Err
 }
 
-func WriteTo(sock_id netstack.SockID, data []byte, flags int, dest SockAddr) error {
+func WriteTo(sock_id socket.SockID, data []byte, flags int, dest SockAddr) error {
 	// Create a write request object
-	req := netstack.SockSyscallRequest{
-		SyscallType: netstack.SyscallWriteTo,
+	req := socket.SockSyscallRequest{
+		SyscallType: socket.SyscallWriteTo,
 		SockID:      sock_id,
 		SockType:    sock_id.GetSocketType(),
 		Data:        data,
 		Flags:       flags,
-		Addr:        netstack.SockAddr(dest),
+		Addr:        socket.SockAddr(dest),
 	}
 
 	resp, err := ipc_send_recv(req)
@@ -77,10 +78,10 @@ func WriteTo(sock_id netstack.SockID, data []byte, flags int, dest SockAddr) err
 	return resp.Err
 }
 
-func Read(sock netstack.SockID, data *[]byte) error {
+func Read(sock socket.SockID, data *[]byte) error {
 	// Create a read request object
-	req := netstack.SockSyscallRequest{
-		SyscallType: netstack.SyscallRead,
+	req := socket.SockSyscallRequest{
+		SyscallType: socket.SyscallRead,
 		SockID:      sock,
 		SockType:    sock.GetSocketType(),
 	}

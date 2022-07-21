@@ -5,7 +5,7 @@ import (
 	"net"
 	"time"
 
-	s "github.com/mattcarp12/go-net/api"
+	s "github.com/mattcarp12/matnet/api"
 )
 
 func main() {
@@ -40,5 +40,4 @@ func main() {
 	}
 
 	fmt.Printf("Read %d bytes: %s\n", len(buf), string(buf))
-
 }

@@ -1,4 +1,4 @@
-module github.com/mattcarp12/go-net
+module github.com/mattcarp12/matnet
 
 go 1.17
 

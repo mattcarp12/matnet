@@ -76,7 +76,7 @@ func RxDispatch(layer Layer) {
 		skb := <-layer.RxChan()
 
 		// Dispatch skb to appropriate protocol
-		protocol, err := layer.GetProtocol(skb.ProtocolType)
+		protocol, err := layer.GetProtocol(skb.GetType())
 		if err != nil {
 			log.Printf("Error getting protocol: %v", err)
 			continue
@@ -94,7 +94,7 @@ func TxDispatch(layer Layer) {
 		skb := <-layer.TxChan()
 
 		// Dispatch skb to appropriate protocol
-		protocol, err := layer.GetProtocol(skb.ProtocolType)
+		protocol, err := layer.GetProtocol(skb.GetType())
 		if err != nil {
 			log.Printf("Error getting protocol: %v", err)
 			continue

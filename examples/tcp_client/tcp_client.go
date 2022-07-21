@@ -4,7 +4,7 @@ import (
 	"flag"
 	"net"
 
-	s "github.com/mattcarp12/go-net/api"
+	s "github.com/mattcarp12/matnet/api"
 )
 
 func main() {

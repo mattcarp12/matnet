@@ -44,7 +44,7 @@ type Config struct {
 }
 
 // New creates a new TUN/TAP interface using config.
-func New(config Config) (ifce *Interface, err error) {
+func New(config Config) (*Interface, error) {
 	var zeroConfig Config
 	if config == zeroConfig {
 		config = Config{
@@ -106,8 +106,10 @@ type PlatformSpecificParams struct {
 	MultiQueue bool
 }
 
-func openDev(config Config) (ifce *Interface, err error) {
+func openDev(config Config) (*Interface, error) {
 	var fdInt int
+	var err error
+
 	if fdInt, err = syscall.Open(
 		"/dev/net/tun", os.O_RDWR, 0); err != nil {
 		return nil, err

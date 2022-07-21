@@ -1,11 +1,11 @@
-package ipv4
+package networklayer
 
 import (
 	"encoding/binary"
 	"errors"
 	"log"
 
-	"github.com/mattcarp12/go-net/netstack"
+	"github.com/mattcarp12/matnet/netstack"
 )
 
 type ICMPv4 struct {
@@ -105,7 +105,6 @@ func (icmp *ICMPv4) HandleRx(skb *netstack.SkBuff) {
 	default:
 		log.Printf("ICMP Unknown")
 	}
-
 }
 
 // function to handle ICMP echo requests
@@ -128,11 +127,15 @@ func (icmp *ICMPv4) EchoReply(skb *netstack.SkBuff, requestHeader *ICMPv4Header)
 	replySkb := netstack.NewSkBuff(rawReply)
 
 	// Setup the reply skb
-	replySkb.NetworkInterface = skb.NetworkInterface
-	replySkb.ProtocolType = netstack.ProtocolTypeICMPv4
-	replySkb.L4ProtocolType = netstack.ProtocolTypeICMPv4
-	replySkb.SrcAddr = skb.DestAddr
-	replySkb.DestAddr = skb.SrcAddr
+	txIface, err := skb.GetRxIface()
+	if err != nil {
+		log.Printf("Error getting rx interface: %v", err)
+		return
+	}
+	replySkb.SetTxIface(txIface)
+	replySkb.SetType(netstack.ProtocolTypeICMPv4)
+	replySkb.SetSrcIP(skb.GetDstIP())
+	replySkb.SetDstIP(skb.GetSrcIP())
 
 	// Send the ICMP echo reply to IP
 	icmp.ip.TxChan() <- replySkb
@@ -143,21 +146,17 @@ func (icmp *ICMPv4) EchoReply(skb *netstack.SkBuff, requestHeader *ICMPv4Header)
 
 // function to handle ICMP destination unreachable
 func (icmp *ICMPv4) HandleDestinationUnreachable(skb *netstack.SkBuff) {
-
 }
 
 // function to handle ICMP redirect
 func (icmp *ICMPv4) HandleRedirect(skb *netstack.SkBuff) {
 	// Update routing table
-
 }
 
 // function to send PARAMETER PROBLEM message
 func (icmp *ICMPv4) SendParamProblem(skb *netstack.SkBuff, code uint8) {
-
 }
 
 // function to send TIME EXCEEDED message
 func (icmp *ICMPv4) SendTimeExceeded(skb *netstack.SkBuff, code uint8) {
-
 }

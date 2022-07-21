@@ -8,14 +8,16 @@ import (
 	"net"
 	"os"
 
-	"github.com/mattcarp12/go-net/netstack"
+	"github.com/mattcarp12/matnet/netstack/socket"
 )
 
 // package logger
 var log = logging.New(os.Stdout, "[API] ", logging.Ldate|logging.Lmicroseconds|logging.Lshortfile)
 
-var ipc_conn net.Conn
-var ipc_reader *bufio.Reader
+var (
+	ipc_conn   net.Conn
+	ipc_reader *bufio.Reader
+)
 
 const ipc_addr = "/tmp/gonet.sock"
 
@@ -36,7 +38,7 @@ func ipc_connect() error {
 	return nil
 }
 
-func ipc_send(req netstack.SockSyscallRequest) error {
+func ipc_send(req socket.SockSyscallRequest) error {
 	// Marshal the message into a byte array
 	msg, err := json.Marshal(req)
 	if err != nil {
@@ -56,7 +58,7 @@ func ipc_send(req netstack.SockSyscallRequest) error {
 	return nil
 }
 
-func ipc_recv(resp *netstack.SockSyscallResponse) error {
+func ipc_recv(resp *socket.SockSyscallResponse) error {
 	// read the respBytes
 	respBytes, err := ipc_reader.ReadBytes('\n')
 	if err != nil {
@@ -76,16 +78,16 @@ func ipc_recv(resp *netstack.SockSyscallResponse) error {
 	return nil
 }
 
-func ipc_send_recv(req netstack.SockSyscallRequest) (netstack.SockSyscallResponse, error) {
+func ipc_send_recv(req socket.SockSyscallRequest) (socket.SockSyscallResponse, error) {
 	// Make sure we are connected
 	if ipc_conn == nil {
 		err := ipc_connect()
 		if err != nil {
-			return netstack.SockSyscallResponse{}, err
+			return socket.SockSyscallResponse{}, err
 		}
 	}
 
-	var resp netstack.SockSyscallResponse
+	var resp socket.SockSyscallResponse
 
 	if err := ipc_send(req); err != nil {
 		return resp, err

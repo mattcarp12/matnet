@@ -4,14 +4,19 @@ import (
 	"net"
 )
 
+type IfAddr struct {
+	IP      net.IP
+	Netmask net.IPMask
+	Gateway net.IP
+}
+
 type NetworkInterface interface {
 	Read() ([]byte, error)
 	Write([]byte) error
 	GetType() ProtocolType
 	GetHWAddr() net.HardwareAddr
-	GetNetworkAddr() net.IP
-	GetNetmask() net.IPMask
-	GetGateway() net.IP
+	GetIfAddrs() []IfAddr
+	HasIPAddr(ip net.IP) bool
 
 	// HandleRX is called when a packet is received from the "wire"
 	HandleRx([]byte)

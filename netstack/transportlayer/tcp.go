@@ -7,7 +7,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/mattcarp12/go-net/netstack"
+	"github.com/mattcarp12/matnet/netstack"
 )
 
 /*******************************************************************************
@@ -298,17 +298,16 @@ func (tcp *TcpProtocol) HandleRx(skb *netstack.SkBuff) {
 	if err := tcpHeader.Unmarshal(skb.Data); err != nil {
 		skb.Error(err)
 		return
-	} else {
-		skb.StripBytes(tcpHeader.Size())
-		skb.L4ProtocolType = netstack.ProtocolTypeTCP
-		skb.SrcAddr.Port = tcpHeader.SrcPort
-		skb.DestAddr.Port = tcpHeader.DstPort
 	}
+
+	skb.StripBytes(tcpHeader.Size())
+	skb.SetSrcPort(tcpHeader.SrcPort)
+	skb.SetDstPort(tcpHeader.DstPort)
 
 	// TODO: Handle fragmentation, possibly reassemble
 
 	// Find the TCB for this connection
-	connID := ConnectionID(skb.SrcAddr, skb.DestAddr)
+	connID := ConnectionID(skb.GetSrcAddr(), skb.GetDstAddr())
 
 	var tcb *TCB
 	tcb, ok := tcp.ConnTable[connID]
@@ -399,7 +398,6 @@ func ISN() uint32 {
 // to a SYN packet. The TCB is updated with the remote TCP's ISN.
 // The TCBs state is set to TCP_STATE_SYN_RCVD.
 func (tcp *TcpProtocol) SendSynAck(skb *netstack.SkBuff, tcb *TCB, requestHeader *TcpHeader) {
-
 	// Create a new TCP header
 	newHeader := &TcpHeader{}
 
@@ -429,9 +427,12 @@ func (tcp *TcpProtocol) SendSynAck(skb *netstack.SkBuff, tcb *TCB, requestHeader
 	// Set the skb's L4 header to the TCP header
 	newSkb := netstack.NewSkBuff([]byte{})
 
-	newSkb.SrcAddr = skb.DestAddr
-	newSkb.DestAddr = skb.SrcAddr
-	newSkb.L4ProtocolType = netstack.ProtocolTypeTCP
+	newSkb.SetSrcIP(skb.GetDstIP())
+	newSkb.SetDstIP(skb.GetSrcIP())
+	newSkb.SetSrcPort(skb.GetDstPort())
+	newSkb.SetDstPort(skb.GetSrcPort())
+
+	set_skb_type(newSkb)
 
 	// Send to the network layer
 	tcp.TxDown(newSkb)
@@ -461,8 +462,6 @@ func (tcp *TcpProtocol) SendEmptyRst(tcpHeader *TcpHeader) {
 	// Create a new skb
 	newSkb := netstack.NewSkBuff([]byte{})
 
-	
-
 	// Send to the network layer
 	tcp.TxDown(newSkb)
 }
@@ -473,7 +472,7 @@ func (tcp *TcpProtocol) SendEmptyRst(tcpHeader *TcpHeader) {
 //
 // This function sends a SYN packet to the remote TCP
 // and returns immediately.
-func (tcp *TcpProtocol) OpenConnection(sock_meta netstack.SocketMeta) error {
+func (tcp *TcpProtocol) OpenConnection(srcAddr, dstAddr netstack.SockAddr) error {
 	// Make empty skb
 	skb := netstack.NewSkBuff([]byte{})
 
@@ -485,8 +484,8 @@ func (tcp *TcpProtocol) OpenConnection(sock_meta netstack.SocketMeta) error {
 	header := &TcpHeader{}
 	isn := ISN()
 
-	header.SrcPort = sock_meta.SrcAddr.Port
-	header.DstPort = sock_meta.DestAddr.Port
+	header.SrcPort = srcAddr.Port
+	header.DstPort = dstAddr.Port
 	header.BitFlags = TCP_SYN
 	header.SeqNum = isn
 	header.AckNum = 0
@@ -510,7 +509,7 @@ func (tcp *TcpProtocol) OpenConnection(sock_meta netstack.SocketMeta) error {
 	tcb.SendNXT = isn + 1
 
 	// Update the TCB table
-	connID := ConnectionID(sock_meta.SrcAddr, sock_meta.DestAddr)
+	connID := ConnectionID(srcAddr, dstAddr)
 	tcp.ConnTable[connID] = tcb
 
 	return nil
@@ -523,8 +522,8 @@ func set_tcp_checksum(skb *netstack.SkBuff, header *TcpHeader) {
 	// Make pseudo header
 	// TODO: Handle IPv6
 	ph := &TcpPseudoHeader{
-		SrcIP:    skb.SrcAddr.IP,
-		DstIP:    skb.DestAddr.IP,
+		SrcIP:    skb.GetSrcIP(),
+		DstIP:    skb.GetDstIP(),
 		Zero:     0,
 		Protocol: 6,
 		Length:   uint16(header.HeaderLen*4) + uint16(len(skb.Data)),

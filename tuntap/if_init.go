@@ -8,7 +8,6 @@ func TapInit(name string, ipAddr string) *Interface {
 			Name: name,
 		},
 	})
-
 	if err != nil {
 		panic(err)
 	}

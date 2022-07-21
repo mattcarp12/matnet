@@ -1,9 +1,9 @@
-package ipv6
+package networklayer
 
 import (
 	// "log"
 
-	"github.com/mattcarp12/go-net/netstack"
+	"github.com/mattcarp12/matnet/netstack"
 )
 
 type IPV6 struct {

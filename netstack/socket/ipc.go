@@ -1,33 +1,31 @@
-package ipc
+package socket
 
 import (
 	"bufio"
-	logging "log"
+	"log"
 	"net"
 	"os"
 
 	"github.com/google/uuid"
-	"github.com/mattcarp12/go-net/netstack"
-	"github.com/mattcarp12/go-net/netstack/socket"
 )
 
-var log = logging.New(os.Stdout, "[IPC] ", logging.Ldate|logging.Lmicroseconds|logging.Lshortfile)
+var ipc_log = log.New(os.Stdout, "[IPC] ", log.Ldate|log.Lmicroseconds|log.Lshortfile)
 
 type IPC struct {
-	socket_layer    *socket.SocketLayer
+	socket_layer    *SocketLayer
 	server          *IPCServer
 	conn_map        map[string]*ipc_conn
-	SyscallRespChan chan netstack.SockSyscallResponse
+	SyscallRespChan chan SockSyscallResponse
 }
 
 type ipc_conn struct {
 	id           string
 	conn         net.Conn
-	socket_layer *socket.SocketLayer
-	rx_chan      chan netstack.SockSyscallResponse
+	socket_layer *SocketLayer
+	rx_chan      chan SockSyscallResponse
 }
 
-func (ic *ipc_conn) get_response() netstack.SockSyscallResponse {
+func (ic *ipc_conn) get_response() SockSyscallResponse {
 	return <-ic.rx_chan
 }
 
@@ -40,22 +38,22 @@ const ipc_addr = "/tmp/gonet.sock"
 
 // serve ...
 func (ipc *IPC) serve() {
-	log.Printf("Starting server on %s", ipc_addr)
+	ipc_log.Printf("Starting server on %s", ipc_addr)
 
 	listener, err := net.Listen("unix", ipc_addr)
 	if err != nil {
-		log.Fatal(err)
+		ipc_log.Fatal(err)
 	}
 
 	// change file permission so non-root users can access
-	os.Chmod(ipc_addr, 0777)
+	os.Chmod(ipc_addr, 0o777)
 
 	defer listener.Close()
 
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			log.Printf("Error accepting connection: %s", err)
+			ipc_log.Printf("Error accepting connection: %s", err)
 			continue
 		}
 
@@ -67,7 +65,7 @@ func (ipc *IPC) serve() {
 			id:           conn_id,
 			conn:         conn,
 			socket_layer: ipc.socket_layer,
-			rx_chan:      make(chan netstack.SockSyscallResponse),
+			rx_chan:      make(chan SockSyscallResponse),
 		}
 
 		// Add to connection map
@@ -87,14 +85,14 @@ func (ipc *IPC) SyscallResponseLoop() {
 		// Get message from response channel and dispatch to connection
 		// The response channel is actually the socket layer's syscall response channel
 		msg := <-ipc.SyscallRespChan
-		log.Printf("Received Syscall Response: %+v", msg)
+		ipc_log.Printf("Received Syscall Response: %+v", msg)
 
 		// get connection from map
 		if conn, ok := ipc.conn_map[msg.ConnID]; ok {
 			// send message to connection
 			conn.rx_chan <- msg
 		} else {
-			log.Printf("Connection not found: %s", msg.ConnID)
+			ipc_log.Printf("Connection not found: %s", msg.ConnID)
 		}
 	}
 }
@@ -111,15 +109,15 @@ func (iconn *ipc_conn) handle_connection() {
 	reader := bufio.NewReader(iconn.conn)
 	for {
 		// Read request
-		var req netstack.SockSyscallRequest
+		var req SockSyscallRequest
 		err := req.Read(reader)
 		if err != nil {
-			log.Printf("Error reading request: %s", err)
+			ipc_log.Printf("Error reading request: %s", err)
 			iconn.close()
 			return
 		}
 
-		log.Printf("Received request: %+v", req)
+		ipc_log.Printf("Received request: %+v", req)
 
 		// Set the connection ID
 		req.ConnID = iconn.id
@@ -138,9 +136,9 @@ func (iconn *ipc_conn) handle_connection() {
 
 func (iconn *ipc_conn) close() {
 	// make SockSyscallRequest for to close the socket
-	req := netstack.SockSyscallRequest{
+	req := SockSyscallRequest{
 		ConnID:      iconn.id,
-		SyscallType: netstack.SyscallClose,
+		SyscallType: SyscallClose,
 	}
 
 	// send request to socket layer
@@ -148,13 +146,13 @@ func (iconn *ipc_conn) close() {
 
 	// wait for response
 	resp := iconn.get_response()
-	log.Printf("Received response: %+v", resp)
+	ipc_log.Printf("Received response: %+v", resp)
 
 	// close connection
 	iconn.conn.Close()
 }
 
-func Init(sl *socket.SocketLayer) *IPC {
+func IpcInit(sl *SocketLayer) *IPC {
 	os.Remove(ipc_addr)
 	ipc := &IPC{
 		sl,
@@ -162,7 +160,7 @@ func Init(sl *socket.SocketLayer) *IPC {
 			make(chan bool),
 		},
 		make(map[string]*ipc_conn),
-		make(chan netstack.SockSyscallResponse),
+		make(chan SockSyscallResponse),
 	}
 
 	// Set SocketLayer syscall response channel so it can

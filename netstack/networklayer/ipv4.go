@@ -1,12 +1,20 @@
-package ipv4
+package networklayer
 
 import (
 	"encoding/binary"
 	"errors"
+	"log"
 	"net"
+	"os"
 
-	"github.com/mattcarp12/go-net/netstack"
+	"github.com/mattcarp12/matnet/netstack"
 )
+
+var ip4_log = log.New(os.Stdout, "[IPv4] ", log.Ldate|log.Lmicroseconds|log.Lshortfile)
+
+//=============================================================================
+// IPv4 Header
+//=============================================================================
 
 type IPv4Header struct {
 	Version        uint8
@@ -165,7 +173,12 @@ func (h *IPv4Header) GetL4Type() netstack.ProtocolType {
 }
 
 func GetIPProtocolType(skb *netstack.SkBuff) (uint8, error) {
-	switch skb.L4ProtocolType {
+	l4Header, err := skb.GetL4Header()
+	if err != nil {
+		return 0, err
+	}
+
+	switch l4Header.GetType() {
 	case netstack.ProtocolTypeICMPv4:
 		return ProtocolICMP, nil
 	case netstack.ProtocolTypeTCP:
@@ -175,4 +188,114 @@ func GetIPProtocolType(skb *netstack.SkBuff) (uint8, error) {
 	default:
 		return 0, errors.New("unknown protocol")
 	}
+}
+
+//=============================================================================
+// IPv4 Protocol
+//=============================================================================
+
+type IPv4 struct {
+	netstack.IProtocol
+	Icmp *ICMPv4
+}
+
+func NewIPv4() *IPv4 {
+	return &IPv4{
+		IProtocol: netstack.NewIProtocol(netstack.ProtocolTypeIPv4),
+	}
+}
+
+func (ipv4 *IPv4) HandleRx(skb *netstack.SkBuff) {
+	// Create a new IPv4 header
+	ipv4Header := &IPv4Header{}
+
+	// Unmarshal the IPv4 header
+	if err := ipv4Header.Unmarshal(skb.Data); err != nil {
+		// If there is a problem with the IPv4 header, we may
+		// need to send a ICMP error message back to the sender.
+		switch err {
+		case ErrInvalidIPv4Header:
+			ipv4.Icmp.SendParamProblem(skb, 0)
+		case ErrTTLZero:
+			ipv4.Icmp.SendTimeExceeded(skb, 0)
+		case ErrInvalidCheckSum:
+			ip4_log.Println("invalid checksum")
+		}
+		return
+	}
+
+	rxIface, err := skb.GetRxIface()
+	if err != nil {
+		ip4_log.Println("failed to get rx iface")
+		return
+	}
+
+	// Check the Destination IP matches the IP of the interface,
+	// only for global unicast addresses
+	if ipv4Header.DestinationIP.IsGlobalUnicast() && !rxIface.HasIPAddr(ipv4Header.DestinationIP) {
+		ip4_log.Println("Destination IP does not match the IP of the interface")
+		return
+	}
+
+	// TODO: Check fragmentation, possibly reassemble
+
+	// Everything is good, now update the skb before passing
+	// it to the transport layer or ICMP
+	skb.SetSrcIP(ipv4Header.SourceIP)
+	skb.SetDstIP(ipv4Header.DestinationIP)
+	skb.SetType(ipv4Header.GetL4Type())
+	skb.SetL3Header(ipv4Header)
+	skb.StripBytes(int(ipv4Header.IHL) * 4)
+
+	// Check if packet is ICMP
+	if ipv4Header.Protocol == ProtocolICMP {
+		ipv4.Icmp.HandleRx(skb)
+		return
+	}
+
+	// Send the packet up the stack to the transport layer
+	ipv4.RxUp(skb)
+}
+
+func (ipv4 *IPv4) HandleTx(skb *netstack.SkBuff) {
+	ip4_log.Println("HandleTx")
+
+	protocolType, err := GetIPProtocolType(skb)
+	if err != nil {
+		skb.Error(err)
+		return
+	}
+
+	// Create a new IPv4 header
+	ipv4Header := &IPv4Header{
+		Version:        4,
+		IHL:            5,
+		TypeOfService:  0,
+		TotalLength:    uint16(len(skb.Data) + IPv4HeaderSize),
+		Identification: 0,
+		Flags:          0,
+		FragmentOffset: 0,
+		TTL:            64,
+		Protocol:       protocolType,
+		HeaderChecksum: 0,
+		SourceIP:       skb.GetSrcIP().To4(),
+		DestinationIP:  skb.GetDstIP().To4(),
+	}
+
+	// TODO: Calculate the checksum for the L4 header
+	skb.GetL4Header()
+
+	// Calculate the checksum for the IPv4 header
+	ipv4Header.HeaderChecksum = netstack.Checksum(ipv4Header.Marshal())
+
+	// Prepend the IPv4 header to the skb
+	skb.SetL3Header(ipv4Header)
+	skb.PrependBytes(ipv4Header.Marshal())
+
+	// Passing to link layer, so need to set the skb type
+	// to the type of the interface
+	skb.SetType(netstack.ProtocolTypeEthernet)
+
+	// Send the skb to the next layer
+	ipv4.TxDown(skb)
 }

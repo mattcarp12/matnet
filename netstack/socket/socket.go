@@ -1,4 +1,4 @@
-package netstack
+package socket
 
 import (
 	"bufio"
@@ -9,7 +9,10 @@ import (
 	"strconv"
 
 	"github.com/google/uuid"
+	"github.com/mattcarp12/matnet/netstack"
 )
+
+type SockAddr = netstack.SockAddr
 
 /****************************************************************************
 	SockSyscall -
@@ -125,39 +128,6 @@ const (
 var ErrInvalidSocketType = errors.New("invalid socket type")
 
 /****************************************************************************
-	SockAddr -- generic structure for network addresses
-	Can hold either an IPv4 or IPv6 address
-****************************************************************************/
-type SockAddr struct {
-	Port uint16
-	IP   net.IP
-}
-
-type AddressType uint
-
-const (
-	AddressTypeIPv4 = iota
-	AddressTypeIPv6
-	AddressTypeUnknown
-)
-
-var ErrInvalidAddressType = errors.New("invalid address type")
-
-func (s SockAddr) String() string {
-	return s.IP.String() + ":" + strconv.Itoa(int(s.Port))
-}
-
-func (s SockAddr) GetType() AddressType {
-	if s.IP.To4() != nil {
-		return AddressTypeIPv4
-	} else if s.IP.To16() != nil {
-		return AddressTypeIPv6
-	} else {
-		return AddressTypeUnknown
-	}
-}
-
-/****************************************************************************
 	SocketMeta - helper struct for Socket implementations
 	Implements methods common for all sockets
 ****************************************************************************/
@@ -165,20 +135,20 @@ type SocketMetaOps interface {
 	GetMeta() *SocketMeta
 	GetType() SocketType
 	SetType(sockType SocketType)
-	GetProtocol() Protocol
-	SetProtocol(protocol Protocol)
+	GetProtocol() netstack.Protocol
+	SetProtocol(protocol netstack.Protocol)
 	GetSrcAddr() SockAddr
 	SetSrcAddr(addr SockAddr)
 	GetDestAddr() SockAddr
 	SetDestAddr(addr SockAddr)
 	GetID() SockID
 	SetID(id SockID)
-	GetRoute() *route
-	SetRoute(route *route)
-	GetNetworkInterface() NetworkInterface
-	SetNetworkInterface(iface NetworkInterface)
-	GetRxChan() chan *SkBuff
-	SetRxChan(rxChan chan *SkBuff)
+	GetRoute() *netstack.Route
+	SetRoute(route *netstack.Route)
+	GetNetworkInterface() netstack.NetworkInterface
+	SetNetworkInterface(iface netstack.NetworkInterface)
+	GetRxChan() chan *netstack.SkBuff
+	SetRxChan(rxChan chan *netstack.SkBuff)
 }
 
 type SocketMeta struct {
@@ -186,7 +156,7 @@ type SocketMeta struct {
 	Type SocketType
 
 	// Socket protocol
-	Protocol Protocol
+	Protocol netstack.Protocol
 
 	// Source address
 	SrcAddr SockAddr
@@ -198,20 +168,20 @@ type SocketMeta struct {
 	ID SockID
 
 	// Route
-	Route *route
+	Route *netstack.Route
 
 	// Network interface
-	NetworkInterface NetworkInterface
+	NetworkInterface netstack.NetworkInterface
 
 	// RxChan
-	RxChan chan *SkBuff
+	RxChan chan *netstack.SkBuff
 }
 
 const socket_rx_chan_size = 100
 
 func NewSocketMeta() *SocketMeta {
 	return &SocketMeta{
-		RxChan: make(chan *SkBuff, socket_rx_chan_size),
+		RxChan: make(chan *netstack.SkBuff, socket_rx_chan_size),
 	}
 }
 
@@ -229,11 +199,11 @@ func (meta *SocketMeta) SetType(sockType SocketType) {
 	meta.Type = sockType
 }
 
-func (meta *SocketMeta) GetProtocol() Protocol {
+func (meta *SocketMeta) GetProtocol() netstack.Protocol {
 	return meta.Protocol
 }
 
-func (meta *SocketMeta) SetProtocol(protocol Protocol) {
+func (meta *SocketMeta) SetProtocol(protocol netstack.Protocol) {
 	meta.Protocol = protocol
 }
 
@@ -261,26 +231,26 @@ func (meta *SocketMeta) SetID(id SockID) {
 	meta.ID = id
 }
 
-func (meta *SocketMeta) GetRoute() *route {
+func (meta *SocketMeta) GetRoute() *netstack.Route {
 	return meta.Route
 }
 
-func (meta *SocketMeta) SetRoute(route *route) {
+func (meta *SocketMeta) SetRoute(route *netstack.Route) {
 	meta.Route = route
 }
 
-func (meta *SocketMeta) GetNetworkInterface() NetworkInterface {
+func (meta *SocketMeta) GetNetworkInterface() netstack.NetworkInterface {
 	return meta.NetworkInterface
 }
 
-func (meta *SocketMeta) SetNetworkInterface(iface NetworkInterface) {
+func (meta *SocketMeta) SetNetworkInterface(iface netstack.NetworkInterface) {
 	meta.NetworkInterface = iface
 }
 
-func (meta *SocketMeta) GetRxChan() chan *SkBuff {
+func (meta *SocketMeta) GetRxChan() chan *netstack.SkBuff {
 	return meta.RxChan
 }
 
-func (meta *SocketMeta) SetRxChan(rxChan chan *SkBuff) {
+func (meta *SocketMeta) SetRxChan(rxChan chan *netstack.SkBuff) {
 	meta.RxChan = rxChan
 }

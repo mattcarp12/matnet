@@ -3,7 +3,7 @@ package socket
 import (
 	"net"
 
-	"github.com/mattcarp12/go-net/netstack"
+	"github.com/mattcarp12/matnet/netstack"
 )
 
 /*
@@ -11,19 +11,19 @@ import (
 */
 
 type udp_socket struct {
-	netstack.SocketMeta
+	SocketMeta
 }
 
-func NewUDPSocket() netstack.Socket {
+func NewUDPSocket() Socket {
 	s := &udp_socket{
-		SocketMeta: *netstack.NewSocketMeta(),
+		SocketMeta: *NewSocketMeta(),
 	}
-	s.Type = netstack.SocketTypeDatagram
+	s.Type = SocketTypeDatagram
 	return s
 }
 
 // Bind...
-func (s *udp_socket) Bind(addr netstack.SockAddr) error {
+func (s *udp_socket) Bind(addr SockAddr) error {
 	return nil
 }
 
@@ -38,7 +38,7 @@ func (s *udp_socket) Accept() (net.Conn, error) {
 }
 
 // Connect...
-func (s *udp_socket) Connect(addr netstack.SockAddr) error {
+func (s *udp_socket) Connect(addr SockAddr) error {
 	return nil
 }
 
@@ -62,12 +62,13 @@ func (s *udp_socket) Write(b []byte) (int, error) {
 }
 
 // ReadFrom...
-func (s *udp_socket) ReadFrom(b []byte, addr *netstack.SockAddr) (int, error) {
+func (s *udp_socket) ReadFrom(b []byte, addr *SockAddr) (int, error) {
 	return 0, nil
 }
 
 // WriteTo...
-func (sock *udp_socket) WriteTo(b []byte, destAddr netstack.SockAddr) (int, error) {
+// At this point the socket should have an iterface and source address set
+func (sock *udp_socket) WriteTo(b []byte, destAddr SockAddr) (int, error) {
 	// Set socket destination address
 	sock.DestAddr = destAddr
 
@@ -75,10 +76,14 @@ func (sock *udp_socket) WriteTo(b []byte, destAddr netstack.SockAddr) (int, erro
 	skb := netstack.NewSkBuff(b)
 
 	// Set the skbuff interface
-	skb.NetworkInterface = sock.SocketMeta.Route.Iface
+	skb.SetTxIface(sock.SocketMeta.Route.Iface)
+
+	// Set the skbuff source and destination addresses
+	skb.SetDstAddr(sock.DestAddr)
+	skb.SetSrcAddr(sock.SrcAddr)
 
 	// Set skbuff type to UDP
-	skb.ProtocolType = netstack.ProtocolTypeUDP
+	skb.SetType(netstack.ProtocolTypeUDP)
 
 	// Send packet to UDP protocol
 	sock.SocketMeta.Protocol.TxChan() <- skb

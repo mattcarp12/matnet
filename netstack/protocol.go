@@ -15,7 +15,7 @@ import (
 		1. HandleRx is called with a skb
 		2. Create a new header object
 		3. Unmarshal the header object, handle errors
-		4. Check the headers destination address matches the
+		4. Check the header's destination address matches the
 			protocol's address
 		5. Set the header object in the skb
 		6. Strip the header from the skb

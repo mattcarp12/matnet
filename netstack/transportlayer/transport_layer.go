@@ -1,11 +1,12 @@
 package transportlayer
 
 import (
+	"errors"
 	logging "log"
 	"os"
 
-	"github.com/mattcarp12/go-net/netstack"
-	"github.com/mattcarp12/go-net/netstack/networklayer"
+	"github.com/mattcarp12/matnet/netstack"
+	"github.com/mattcarp12/matnet/netstack/networklayer"
 )
 
 var log = logging.New(os.Stdout, "[Transport Layer] ", logging.Ldate|logging.Lmicroseconds|logging.Lshortfile)
@@ -51,13 +52,18 @@ func set_skb_type(skb *netstack.SkBuff) error {
 	// If it's IPv4, set the skb type to IPv4
 	// If it's IPv6, set the skb type to IPv6
 	// If it's neither, error
-	addrType := skb.DestAddr.GetType()
-	if addrType == netstack.AddressTypeIPv4 {
-		skb.ProtocolType = netstack.ProtocolTypeIPv4
-	} else if addrType == netstack.AddressTypeIPv6 {
-		skb.ProtocolType = netstack.ProtocolTypeIPv6
+	dstAddr := skb.GetDstIP()
+	if dstAddr == nil {
+		return errors.New("destination address is nil")
+	}
+	ip4 := dstAddr.To4()
+	ip6 := dstAddr.To16()
+	if ip4 != nil {
+		skb.SetType(netstack.ProtocolTypeIPv4)
+	} else if ip6 != nil {
+		skb.SetType(netstack.ProtocolTypeIPv6)
 	} else {
-		return netstack.ErrInvalidAddressType
+		return errors.New("destination address is neither IPv4 nor IPv6")
 	}
 	return nil
 }

@@ -4,7 +4,7 @@ import (
 	"encoding/binary"
 	"net"
 
-	"github.com/mattcarp12/go-net/netstack"
+	"github.com/mattcarp12/matnet/netstack"
 )
 
 /*******************************************************************************
@@ -94,8 +94,8 @@ func (udp *UdpProtocol) HandleRx(skb *netstack.SkBuff) {
 	}
 
 	// Set ports on skb
-	skb.SrcAddr.Port = h.SrcPort
-	skb.DestAddr.Port = h.DstPort
+	skb.SetSrcPort(h.SrcPort)
+	skb.SetDstPort(h.DstPort)
 
 	// TODO: Handle fragmentation, possibly reassemble
 
@@ -104,21 +104,22 @@ func (udp *UdpProtocol) HandleRx(skb *netstack.SkBuff) {
 
 	// Send to socket layer
 	udp.RxUp(skb)
-
 }
 
 func (udp *UdpProtocol) HandleTx(skb *netstack.SkBuff) {
 	log.Printf("HandleTx -- UDP packet")
 
 	// setup the UDP header
-	if h, err := udp.make_udp_header(skb); err != nil {
+	h, err := udp.make_udp_header(skb)
+	if err != nil {
 		skb.Error(err)
 		return
-	} else {
-		skb.SrcAddr.Port = h.SrcPort
-		skb.DestAddr.Port = h.DstPort
-		skb.PrependBytes(h.Marshal())
 	}
+
+	skb.SetSrcPort(h.SrcPort)
+	skb.SetDstPort(h.DstPort)
+	skb.SetL4Header(h)
+	skb.PrependBytes(h.Marshal())
 
 	// Passing to the network layer, so set the skb type
 	// to the type of the destination address (ipv4, ipv6, etc)
@@ -136,8 +137,8 @@ func (udp *UdpProtocol) make_udp_header(skb *netstack.SkBuff) (*UdpHeader, error
 	h := &UdpHeader{}
 
 	// Set port fields on header
-	h.DstPort = skb.DestAddr.Port
-	h.SrcPort = skb.SrcAddr.Port
+	h.DstPort = skb.GetDstPort()
+	h.SrcPort = skb.GetSrcPort()
 
 	// Set length
 	h.Length = uint16(len(skb.Data) + 8)
@@ -157,8 +158,8 @@ func set_udp_checksum(skb *netstack.SkBuff, h *UdpHeader) error {
 	// Make pseudo header
 	// TODO: Handle IPv6
 	p := &UdpPsuedoHeader{
-		SrcIP:  skb.SrcAddr.IP.To4(),
-		DstIP:  skb.DestAddr.IP.To4(),
+		SrcIP:  skb.GetSrcIP().To4(),
+		DstIP:  skb.GetDstIP().To4(),
 		Zero:   0,
 		Proto:  17,
 		Length: h.Length,

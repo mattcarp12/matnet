@@ -1,17 +1,15 @@
 package main
 
 import (
-	"github.com/mattcarp12/go-net/netstack/ipc"
-	"github.com/mattcarp12/go-net/netstack/linklayer"
-	"github.com/mattcarp12/go-net/netstack/networklayer"
-	"github.com/mattcarp12/go-net/netstack/socket"
-	"github.com/mattcarp12/go-net/netstack/transportlayer"
+	"github.com/mattcarp12/matnet/netstack/linklayer"
+	"github.com/mattcarp12/matnet/netstack/networklayer"
+	"github.com/mattcarp12/matnet/netstack/socket"
+	"github.com/mattcarp12/matnet/netstack/transportlayer"
 )
 
 var done = make(chan bool)
 
 func main() {
-
 	// Initialize the link layer
 	link, routing_table := linklayer.Init()
 
@@ -25,7 +23,7 @@ func main() {
 	socket_layer := socket.Init(transport, routing_table)
 
 	// Initialize the IPC server
-	ipc.Init(socket_layer)
+	socket.IpcInit(socket_layer)
 
 	<-done
 }

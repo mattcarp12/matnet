@@ -2,72 +2,48 @@ package test
 
 import (
 	"net"
-	"os/exec"
+	"os"
 	"testing"
 	"time"
 
-	s "github.com/mattcarp12/go-net/api"
-	"github.com/mattcarp12/go-net/netstack/ipc"
-	"github.com/mattcarp12/go-net/netstack/linklayer"
-	"github.com/mattcarp12/go-net/netstack/networklayer"
-	"github.com/mattcarp12/go-net/netstack/socket"
-	"github.com/mattcarp12/go-net/netstack/transportlayer"
+	s "github.com/mattcarp12/matnet/api"
 )
 
-var done = make(chan bool)
+const UdpPort = 8845
 
-func StartNetstack() {
-	// Initialize the link layer
-	link, routing_table := linklayer.Init()
+func startUDPServer() *net.UDPConn {
+	// create a new socket
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{
+		IP:   net.ParseIP(os.Getenv("LOCAL_IP")),
+		Port: UdpPort,
+		Zone: "",
+	})
 
-	// Initialize the network layer
-	net := networklayer.Init(link)
+	if err != nil {
+		panic(err)
+	}
 
-	// Initialize the transport layer
-	transport := transportlayer.Init(net)
-
-	// Initialize the socket manager
-	socket_layer := socket.Init(transport, routing_table)
-
-	// Initialize the IPC server
-	ipc.Init(socket_layer)
-
-	<-done
+	return conn
 }
 
-func StopNetstack() {
-	done <- true
-}
-
-var nc *exec.Cmd
-
-func StartNetcatServer() {
-	nc = exec.Command("nc", "-l", "-u", "8845")
-	nc.Start()
-}
-
-func StopNetcatServer() {
-	nc.Process.Kill()
-}
-
-func GetNetcatOutput() string {
+func readUDP(conn *net.UDPConn) string {
 	buf := make([]byte, 1024)
-	stdout, _ := nc.StdoutPipe()
-	stdout.Read(buf)
-	return string(buf)
+
+	n, _, err := conn.ReadFromUDP(buf)
+	if err != nil {
+		panic(err)
+	}
+
+	return string(buf[:n])
 }
 
 func TestWrite(t *testing.T) {
-	// Start the network stack
-	go StartNetstack()
-	defer StopNetstack()
-
-	// Start netcat server
-	go StartNetcatServer()
-	defer StopNetcatServer()
+	// Start Udp server
+	conn := startUDPServer()
+	defer conn.Close()
 
 	// Wait for setup
-	time.Sleep(time.Second)
+	time.Sleep(500 * time.Millisecond)
 
 	// Create a new socket
 	sock, err := s.Socket(s.SOCK_DGRAM)
@@ -75,24 +51,26 @@ func TestWrite(t *testing.T) {
 		panic(err)
 	}
 
+	t.Logf("Created socket: %v", sock)
+
 	// Make SockAddr to send to
-	sock_addr := s.SockAddr{
-		Port: 8845,
-		IP:   net.IPv4(192, 168, 254, 17),
+	sockAddr := s.SockAddr{
+		Port: UdpPort,
+		IP:   net.ParseIP(os.Getenv("LOCAL_IP")),
 	}
 
 	// Send to the socket
-	err = s.WriteTo(sock, []byte("Hello World\n"), 0, sock_addr)
+	data := "Hello World\n"
+	err = s.WriteTo(sock, []byte(data), 0, sockAddr)
 	if err != nil {
-		time.Sleep(time.Second)
+		time.Sleep(500 * time.Millisecond)
 		// Write again
-		s.WriteTo(sock, []byte("Hello World\n"), 0, sock_addr)
+		s.WriteTo(sock, []byte(data), 0, sockAddr)
 	}
 
-	// Check netcat output
-	res := GetNetcatOutput()
-	t.Logf("Netcat output: %s", res)
-	if res != "Hello World\n" {
-		t.Errorf("Expected netcat output to be 'Hello World\n', got '%s'", res)
+	// Check msg received by udp server
+	if resp := readUDP(conn); resp != data {
+		t.Errorf("Expected netcat output to be 'Hello World', got '%s'", resp)
 	}
+
 }
