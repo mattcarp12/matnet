@@ -2,6 +2,7 @@ package netstack
 
 import (
 	"errors"
+	"log"
 )
 
 /*
@@ -62,6 +63,9 @@ type IProtocol struct {
 
 	// The layer this protocol belongs to
 	layer Layer
+
+	// Logger
+	Log *log.Logger
 }
 
 func NewIProtocol(protocolType ProtocolType) IProtocol {

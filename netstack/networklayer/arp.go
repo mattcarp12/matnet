@@ -1,4 +1,4 @@
-package linklayer
+package networklayer
 
 import (
 	"encoding/binary"
@@ -20,13 +20,14 @@ var arpLog = log.New(os.Stdout, "[ARP] ", log.LstdFlags)
 var ErrInvalidARPHeader = errors.New("invalid arp header")
 
 const (
-	ARP_REQUEST = 1
-	ARP_REPLY   = 2
+	ARPRequest = 1
+	ARPReply   = 2
 )
 
 const (
-	ARP_HardwareTypeEthernet = 1
-	ARP_ProtocolTypeIPv4     = 0x0800
+	ARPHardwareTypeEthernet = 1
+	ARPProtocolTypeIPv4     = 0x0800
+	ARPHeaderLen            = 8
 )
 
 type ARPHeader struct {
@@ -41,34 +42,34 @@ type ARPHeader struct {
 	TargetIPAddr net.IP
 }
 
-func (ah *ARPHeader) Unmarshal(b []byte) error {
-	if len(b) < 8 {
+func (arpHeader *ARPHeader) Unmarshal(b []byte) error {
+	if len(b) < ARPHeaderLen {
 		return ErrInvalidARPHeader
 	}
 
-	ah.HardwareType = binary.BigEndian.Uint16(b[0:2])
-	ah.ProtocolType = binary.BigEndian.Uint16(b[2:4])
-	ah.HardwareSize = b[4]
-	ah.ProtocolSize = b[5]
-	ah.OpCode = binary.BigEndian.Uint16(b[6:8])
+	arpHeader.HardwareType = binary.BigEndian.Uint16(b[0:2])
+	arpHeader.ProtocolType = binary.BigEndian.Uint16(b[2:4])
+	arpHeader.HardwareSize = b[4]
+	arpHeader.ProtocolSize = b[5]
+	arpHeader.OpCode = binary.BigEndian.Uint16(b[6:8])
 
 	// Parse variable length addresses
-	minLen := 8 + int(ah.HardwareSize)*2 + int(ah.ProtocolSize)*2
+	minLen := 8 + int(arpHeader.HardwareSize)*2 + int(arpHeader.ProtocolSize)*2
 	if len(b) < minLen {
 		return ErrInvalidARPHeader
 	}
 
 	// Source HW address
-	ah.SourceHWAddr = b[8 : 8+int(ah.HardwareSize)]
+	arpHeader.SourceHWAddr = b[8 : 8+int(arpHeader.HardwareSize)]
 
 	// Source IP address
-	ah.SourceIPAddr = b[8+int(ah.HardwareSize) : 8+int(ah.HardwareSize)+int(ah.ProtocolSize)]
+	arpHeader.SourceIPAddr = b[8+int(arpHeader.HardwareSize) : 8+int(arpHeader.HardwareSize)+int(arpHeader.ProtocolSize)]
 
 	// Target HW address
-	ah.TargetHWAddr = b[8+int(ah.HardwareSize)+int(ah.ProtocolSize) : 8+int(ah.HardwareSize)*2+int(ah.ProtocolSize)]
+	arpHeader.TargetHWAddr = b[8+int(arpHeader.HardwareSize)+int(arpHeader.ProtocolSize) : 8+int(arpHeader.HardwareSize)*2+int(arpHeader.ProtocolSize)]
 
 	// Target IP address
-	ah.TargetIPAddr = b[8+int(ah.HardwareSize)*2+int(ah.ProtocolSize) : 8+int(ah.HardwareSize)*2+int(ah.ProtocolSize)*2]
+	arpHeader.TargetIPAddr = b[8+int(arpHeader.HardwareSize)*2+int(arpHeader.ProtocolSize) : 8+int(arpHeader.HardwareSize)*2+int(arpHeader.ProtocolSize)*2]
 
 	return nil
 }
@@ -89,7 +90,7 @@ func (arpHeader *ARPHeader) Marshal() []byte {
 	b[5] = arpHeader.ProtocolSize
 
 	// Op code
-	binary.BigEndian.PutUint16(b[6:8], uint16(arpHeader.OpCode))
+	binary.BigEndian.PutUint16(b[6:8], arpHeader.OpCode)
 
 	// Source HW address
 	copy(b[8:8+len(arpHeader.SourceHWAddr)], arpHeader.SourceHWAddr)
@@ -129,13 +130,15 @@ func (arpHeader *ARPHeader) GetL4Type() netstack.ProtocolType {
 
 type ARPProtocol struct {
 	netstack.IProtocol
-	cache *ARPCache
+	cache   *ARPCache
+	pending map[string][]*netstack.SkBuff
 }
 
 func NewARP() *ARPProtocol {
 	return &ARPProtocol{
 		IProtocol: netstack.NewIProtocol(netstack.ProtocolTypeARP),
 		cache:     NewARPCache(),
+		pending:   make(map[string][]*netstack.SkBuff),
 	}
 }
 
@@ -146,39 +149,49 @@ func (arp *ARPProtocol) HandleRx(skb *netstack.SkBuff) {
 
 	// parse the arp header
 	if err := arpHeader.Unmarshal(skb.Data); err != nil {
-		log.Printf("Error parsing arp header: %v", err)
+		arpLog.Printf("Error parsing arp header: %v", err)
 		return
 	}
 
 	// Check if arp Hardware type is Ethernet
-	if arpHeader.HardwareType != ARP_HardwareTypeEthernet {
-		log.Printf("Unsupported hardware type: %v", arpHeader.HardwareType)
+	if arpHeader.HardwareType != ARPHardwareTypeEthernet {
+		arpLog.Printf("Unsupported hardware type: %v", arpHeader.HardwareType)
 		return
 	}
 
 	// Check if arp protocol type is IPv4
-	if arpHeader.ProtocolType != ARP_ProtocolTypeIPv4 {
-		log.Printf("Unsupported protocol type: %v", arpHeader.ProtocolType)
+	if arpHeader.ProtocolType != ARPProtocolTypeIPv4 {
+		arpLog.Printf("Unsupported protocol type: %v", arpHeader.ProtocolType)
 		return
 	}
 
 	// Update the arp cache with the entry for source ip
 	arp.cache.Update(arpHeader)
 
+	// Check the pending cache for any pending packets for this ip
+	if pending, ok := arp.pending[arpHeader.SourceIPAddr.String()]; ok {
+		for _, p := range pending {
+			// Send the packet to the network stack
+			arp.TxDown(p)
+		}
+		// Remove the pending packets from the cache
+		delete(arp.pending, arpHeader.SourceIPAddr.String())
+	}
+
 	// Check if this is an arp request
-	if arpHeader.OpCode != ARP_REQUEST {
+	if arpHeader.OpCode != ARPRequest {
 		return
 	}
 
 	// Make sure TargetIP equals our IP
 	rxIface, err := skb.GetRxIface()
 	if err != nil {
-		log.Printf("Error getting rx iface: %s", err.Error())
+		arpLog.Printf("Error getting rx iface: %s", err.Error())
 		return
 	}
 
 	if !rxIface.HasIPAddr(arpHeader.TargetIPAddr) {
-		log.Printf("ARP request not for our IP: %v", arpHeader.TargetIPAddr)
+		arpLog.Printf("ARP request not for our IP: %v", arpHeader.TargetIPAddr)
 		return
 	}
 
@@ -192,7 +205,7 @@ func (arp *ARPProtocol) ARPReply(inArpHeader *ARPHeader, iface netstack.NetworkI
 	arpReplyHeader.ProtocolType = inArpHeader.ProtocolType
 	arpReplyHeader.HardwareSize = inArpHeader.HardwareSize
 	arpReplyHeader.ProtocolSize = inArpHeader.ProtocolSize
-	arpReplyHeader.OpCode = ARP_REPLY
+	arpReplyHeader.OpCode = ARPReply
 	arpReplyHeader.TargetHWAddr = inArpHeader.SourceHWAddr
 	arpReplyHeader.TargetIPAddr = inArpHeader.SourceIPAddr
 	arpReplyHeader.SourceHWAddr = iface.GetHWAddr()
@@ -210,25 +223,38 @@ func (arp *ARPProtocol) ARPReply(inArpHeader *ARPHeader, iface netstack.NetworkI
 
 	// Set L3 header in the skb
 	arpReplySkb.SetL3Header(arpReplyHeader)
+	arpReplySkb.SetDstIP(arpReplyHeader.TargetIPAddr)
+	arpReplySkb.SetSrcIP(arpReplyHeader.SourceIPAddr)
 
 	// Send the arp reply down to link layer
-	// arp.TxDown(arpReplySkb)
-	// TODO: Find a better way to do this.
-	arp.GetLayer().TxChan() <- arpReplySkb
+	arp.TxDown(arpReplySkb)
 
 	// Get the skb response
 	arpReplySkb.GetResp()
 }
 
-func (arp *ARPProtocol) ARPRequest(srcIP, targetIP net.IP, iface netstack.NetworkInterface) {
+func (arp *ARPProtocol) ARPRequest(skb *netstack.SkBuff) {
+	// Get the network interface the request came from
+	txIface, err := skb.GetTxIface()
+	if err != nil {
+		arpLog.Printf("ARPRequest: Error getting rx iface: %s", err)
+		return
+	}
+
+	// Get target IP address
+	targetIP := skb.GetDstIP()
+
+	// Get the source IP address
+	srcIP := skb.GetSrcIP()
+
 	// Create a new arp header
 	arpRequestHeader := &ARPHeader{}
-	arpRequestHeader.HardwareType = ARP_HardwareTypeEthernet
-	arpRequestHeader.ProtocolType = ARP_ProtocolTypeIPv4
+	arpRequestHeader.HardwareType = ARPHardwareTypeEthernet
+	arpRequestHeader.ProtocolType = ARPProtocolTypeIPv4
 	arpRequestHeader.HardwareSize = 6
 	arpRequestHeader.ProtocolSize = 4
-	arpRequestHeader.OpCode = ARP_REQUEST
-	arpRequestHeader.SourceHWAddr = iface.GetHWAddr()
+	arpRequestHeader.OpCode = ARPRequest
+	arpRequestHeader.SourceHWAddr = txIface.GetHWAddr()
 	arpRequestHeader.SourceIPAddr = srcIP.To4()
 	arpRequestHeader.TargetIPAddr = targetIP.To4()
 	arpRequestHeader.TargetHWAddr = net.HardwareAddr{0xff, 0xff, 0xff, 0xff, 0xff, 0xff} // Broadcast address
@@ -248,16 +274,21 @@ func (arp *ARPProtocol) ARPRequest(srcIP, targetIP net.IP, iface netstack.Networ
 	arpSkb.SetDstIP(targetIP)
 
 	// Set the network interface
-	arpSkb.SetTxIface(iface)
+	arpSkb.SetTxIface(txIface)
 
 	// Set the type of the skb to the link layer type (ethernet, etc),
 	// which we get from the network interface
-	arpSkb.SetType(iface.GetType())
+	arpSkb.SetType(txIface.GetType())
 
 	// Send the arp request down to link layer
-	// arp.TxDown(arpSkb)
-	// TODO: Figure out a better way to do this.
-	arp.GetLayer().TxChan() <- arpSkb
+	arp.TxDown(arpSkb)
+
+	// Add to the pending map
+	if _, ok := arp.pending[targetIP.String()]; !ok {
+		arp.pending[targetIP.String()] = []*netstack.SkBuff{}
+	}
+
+	arp.pending[targetIP.String()] = append(arp.pending[targetIP.String()], skb)
 
 	// Get the skb response
 	skbResp := arpSkb.GetResp()
@@ -271,6 +302,10 @@ func (arp *ARPProtocol) HandleTx(skb *netstack.SkBuff) {}
 
 func (arp *ARPProtocol) Resolve(ip net.IP) (net.HardwareAddr, error) {
 	return arp.cache.Lookup(ip)
+}
+
+func (arp *ARPProtocol) SendRequest(skb *netstack.SkBuff) {
+	arp.ARPRequest(skb)
 }
 
 // ==============================================================================
@@ -310,7 +345,7 @@ func (c *ARPCache) Cleanup() {
 	}
 }
 
-var ErrArpCacheMiss error = errors.New("arp cache miss")
+var ErrArpCacheMiss = errors.New("arp cache miss")
 
 func (c *ARPCache) Lookup(ip net.IP) (net.HardwareAddr, error) {
 	if entry, ok := (*c)[ip.String()]; ok {

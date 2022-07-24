@@ -1,18 +1,20 @@
 package api
 
 import (
+	"fmt"
+
 	"github.com/mattcarp12/matnet/netstack/socket"
 )
 
 // Socket function creates a new socket
-func Socket(sock_type socket.SocketType) (socket.SockID, error) {
+func Socket(sockType socket.SocketType) (socket.SockID, error) {
 	// Create a socket request object
 	req := socket.SockSyscallRequest{
 		SyscallType: socket.SyscallSocket,
-		SockType:    sock_type,
+		SockType:    sockType,
 	}
 
-	resp, err := ipc_send_recv(req)
+	resp, err := ipcSendRecv(req)
 	if err != nil {
 		return "", err
 	}
@@ -21,16 +23,22 @@ func Socket(sock_type socket.SocketType) (socket.SockID, error) {
 	return resp.SockID, resp.Err
 }
 
-func Connect(sock socket.SockID, dest SockAddr) error {
+func Connect(sock socket.SockID, dest string) error {
+	// parse the destination address
+	destAddr, err := socket.ParseSockAddr(dest)
+	if err != nil {
+		return fmt.Errorf("failed to parse destination address: %w", err)
+	}
+
 	// Create a connect request object
 	req := socket.SockSyscallRequest{
 		SyscallType: socket.SyscallConnect,
 		SockID:      sock,
 		SockType:    sock.GetSocketType(),
-		Addr:        socket.SockAddr(dest),
+		Addr:        destAddr,
 	}
 
-	resp, err := ipc_send_recv(req)
+	resp, err := ipcSendRecv(req)
 	if err != nil {
 		return err
 	}
@@ -48,7 +56,7 @@ func Write(sock socket.SockID, data []byte, flags int) error {
 		Flags:       flags,
 	}
 
-	resp, err := ipc_send_recv(req)
+	resp, err := ipcSendRecv(req)
 	if err != nil {
 		return err
 	}
@@ -56,23 +64,23 @@ func Write(sock socket.SockID, data []byte, flags int) error {
 	return resp.Err
 }
 
-func WriteTo(sock_id socket.SockID, data []byte, flags int, dest SockAddr) error {
+func WriteTo(sockID socket.SockID, data []byte, flags int, dest SockAddr) error {
 	// Create a write request object
 	req := socket.SockSyscallRequest{
 		SyscallType: socket.SyscallWriteTo,
-		SockID:      sock_id,
-		SockType:    sock_id.GetSocketType(),
+		SockID:      sockID,
+		SockType:    sockID.GetSocketType(),
 		Data:        data,
 		Flags:       flags,
 		Addr:        socket.SockAddr(dest),
 	}
 
-	resp, err := ipc_send_recv(req)
+	resp, err := ipcSendRecv(req)
 	if err != nil {
 		return err
 	}
 
-	log.Printf("Response: %+v\n", resp)
+	apiLog.Printf("Response: %+v\n", resp)
 
 	// TODO: Return the number of bytes written
 	return resp.Err
@@ -86,7 +94,7 @@ func Read(sock socket.SockID, data *[]byte) error {
 		SockType:    sock.GetSocketType(),
 	}
 
-	resp, err := ipc_send_recv(req)
+	resp, err := ipcSendRecv(req)
 	if err != nil {
 		return err
 	}

@@ -31,9 +31,9 @@ type L4Header interface {
 // Checksum calculates the internet checksum
 func Checksum(data []byte) uint16 {
 	var (
-		sum    uint32
-		length int = len(data)
 		index  int
+		sum    uint32
+		length = len(data)
 	)
 
 	// make length multiple of 2

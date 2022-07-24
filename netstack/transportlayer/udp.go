@@ -7,11 +7,11 @@ import (
 	"github.com/mattcarp12/matnet/netstack"
 )
 
-/*******************************************************************************
-	UDP Header
-*******************************************************************************/
+// =============================================================================
+// UDP Header
+// =============================================================================
 
-type UdpHeader struct {
+type UDPHeader struct {
 	SrcPort  uint16
 	DstPort  uint16
 	Length   uint16
@@ -19,7 +19,7 @@ type UdpHeader struct {
 }
 
 // Implement netstack.Header interface
-func (h *UdpHeader) Marshal() []byte {
+func (h *UDPHeader) Marshal() []byte {
 	b := make([]byte, 8)
 	binary.BigEndian.PutUint16(b[0:2], h.SrcPort)
 	binary.BigEndian.PutUint16(b[2:4], h.DstPort)
@@ -28,7 +28,7 @@ func (h *UdpHeader) Marshal() []byte {
 	return b
 }
 
-func (h *UdpHeader) Unmarshal(b []byte) error {
+func (h *UDPHeader) Unmarshal(b []byte) error {
 	h.SrcPort = binary.BigEndian.Uint16(b[0:2])
 	h.DstPort = binary.BigEndian.Uint16(b[2:4])
 	h.Length = binary.BigEndian.Uint16(b[4:6])
@@ -36,20 +36,20 @@ func (h *UdpHeader) Unmarshal(b []byte) error {
 	return nil
 }
 
-func (h *UdpHeader) GetType() netstack.ProtocolType {
+func (h *UDPHeader) GetType() netstack.ProtocolType {
 	return netstack.ProtocolTypeUDP
 }
 
 // Implement netstack.L4Header interface
-func (h *UdpHeader) GetSrcPort() uint16 {
+func (h *UDPHeader) GetSrcPort() uint16 {
 	return h.SrcPort
 }
 
-func (h *UdpHeader) GetDstPort() uint16 {
+func (h *UDPHeader) GetDstPort() uint16 {
 	return h.DstPort
 }
 
-type UdpPsuedoHeader struct {
+type UDPPsuedoHeader struct {
 	SrcIP  net.IP
 	DstIP  net.IP
 	Zero   uint8
@@ -57,7 +57,7 @@ type UdpPsuedoHeader struct {
 	Length uint16
 }
 
-func (ph *UdpPsuedoHeader) Marshal() []byte {
+func (ph *UDPPsuedoHeader) Marshal() []byte {
 	b := []byte{}
 	b = append(b, ph.SrcIP...)
 	b = append(b, ph.DstIP...)
@@ -68,24 +68,25 @@ func (ph *UdpPsuedoHeader) Marshal() []byte {
 	return b
 }
 
-/*******************************************************************************
-	UDP Protocol
-*******************************************************************************/
+// =============================================================================
+// UDP Protocol
+// =============================================================================
 
-type UdpProtocol struct {
+type UDPProtocol struct {
 	netstack.IProtocol
 }
 
-func NewUDP() *UdpProtocol {
-	udp := &UdpProtocol{
+func NewUDP() *UDPProtocol {
+	udp := &UDPProtocol{
 		IProtocol: netstack.NewIProtocol(netstack.ProtocolTypeUDP),
 	}
+	udp.Log = netstack.NewLogger("UDP")
 	return udp
 }
 
-func (udp *UdpProtocol) HandleRx(skb *netstack.SkBuff) {
+func (udp *UDPProtocol) HandleRx(skb *netstack.SkBuff) {
 	// Create a new UDP header
-	h := &UdpHeader{}
+	h := &UDPHeader{}
 
 	// Unmarshal the UDP header, handle errors
 	if err := h.Unmarshal(skb.Data); err != nil {
@@ -106,15 +107,11 @@ func (udp *UdpProtocol) HandleRx(skb *netstack.SkBuff) {
 	udp.RxUp(skb)
 }
 
-func (udp *UdpProtocol) HandleTx(skb *netstack.SkBuff) {
-	log.Printf("HandleTx -- UDP packet")
+func (udp *UDPProtocol) HandleTx(skb *netstack.SkBuff) {
+	udp.Log.Printf("HandleTx -- UDP packet")
 
 	// setup the UDP header
-	h, err := udp.make_udp_header(skb)
-	if err != nil {
-		skb.Error(err)
-		return
-	}
+	h := udp.makeUDPHeader(skb)
 
 	skb.SetSrcPort(h.SrcPort)
 	skb.SetDstPort(h.DstPort)
@@ -123,7 +120,7 @@ func (udp *UdpProtocol) HandleTx(skb *netstack.SkBuff) {
 
 	// Passing to the network layer, so set the skb type
 	// to the type of the destination address (ipv4, ipv6, etc)
-	if err := set_skb_type(skb); err != nil {
+	if err := setSkbType(skb); err != nil {
 		skb.Error(err)
 		return
 	}
@@ -132,9 +129,9 @@ func (udp *UdpProtocol) HandleTx(skb *netstack.SkBuff) {
 	udp.TxDown(skb)
 }
 
-func (udp *UdpProtocol) make_udp_header(skb *netstack.SkBuff) (*UdpHeader, error) {
+func (udp *UDPProtocol) makeUDPHeader(skb *netstack.SkBuff) *UDPHeader {
 	// Create a new UDP header
-	h := &UdpHeader{}
+	h := &UDPHeader{}
 
 	// Set port fields on header
 	h.DstPort = skb.GetDstPort()
@@ -144,20 +141,18 @@ func (udp *UdpProtocol) make_udp_header(skb *netstack.SkBuff) (*UdpHeader, error
 	h.Length = uint16(len(skb.Data) + 8)
 
 	// Set checksum
-	if err := set_udp_checksum(skb, h); err != nil {
-		return nil, err
-	}
+	setUDPChecksum(skb, h)
 
-	return h, nil
+	return h
 }
 
-func set_udp_checksum(skb *netstack.SkBuff, h *UdpHeader) error {
+func setUDPChecksum(skb *netstack.SkBuff, h *UDPHeader) {
 	// Set checksum initially to 0
 	h.Checksum = 0
 
 	// Make pseudo header
 	// TODO: Handle IPv6
-	p := &UdpPsuedoHeader{
+	p := &UDPPsuedoHeader{
 		SrcIP:  skb.GetSrcIP().To4(),
 		DstIP:  skb.GetDstIP().To4(),
 		Zero:   0,
@@ -171,6 +166,4 @@ func set_udp_checksum(skb *netstack.SkBuff, h *UdpHeader) error {
 
 	// Calculate checksum
 	h.Checksum = netstack.Checksum(b)
-
-	return nil
 }

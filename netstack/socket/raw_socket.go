@@ -4,59 +4,60 @@ import (
 	"net"
 )
 
-type raw_socket struct {
+type RawSocket struct {
 	SocketMeta
 }
 
-func NewRawSocket() Socket {
-	s := &raw_socket{
+func NewRawSocket() *RawSocket {
+	s := &RawSocket{
 		SocketMeta: *NewSocketMeta(),
 	}
 	s.Type = SocketTypeRaw
+
 	return s
 }
 
 // Bind...
-func (s *raw_socket) Bind(addr SockAddr) error {
+func (s *RawSocket) Bind(addr SockAddr) error {
 	return nil
 }
 
 // Listen...
-func (s *raw_socket) Listen() error {
+func (s *RawSocket) Listen() error {
 	return nil
 }
 
 // Accept...
-func (s *raw_socket) Accept() (net.Conn, error) {
+func (s *RawSocket) Accept() (net.Conn, error) {
 	return nil, nil
 }
 
 // Connect...
-func (s *raw_socket) Connect(addr SockAddr) error {
+func (s *RawSocket) Connect(addr SockAddr) error {
 	return nil
 }
 
 // Close...
-func (s *raw_socket) Close() error {
+func (s *RawSocket) Close() error {
 	return nil
 }
 
 // Read...
-func (s *raw_socket) Read() ([]byte, error) {
+func (s *RawSocket) Read() ([]byte, error) {
 	return []byte{}, nil
 }
 
 // Write...
-func (s *raw_socket) Write(b []byte) (int, error) {
+func (s *RawSocket) Write(b []byte) (int, error) {
 	return 0, nil
 }
 
 // ReadFrom...
-func (s *raw_socket) ReadFrom(b []byte, addr *SockAddr) (int, error) {
+func (s *RawSocket) ReadFrom(b []byte, addr *SockAddr) (int, error) {
 	return 0, nil
 }
 
 // WriteTo...
-func (s *raw_socket) WriteTo(b []byte, addr SockAddr) (int, error) {
+func (s *RawSocket) WriteTo(b []byte, addr SockAddr) (int, error) {
 	return 0, nil
 }

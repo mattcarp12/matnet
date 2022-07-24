@@ -2,18 +2,14 @@ package netstack
 
 import (
 	"errors"
-	"log"
 	"net"
-	"os"
 	"strconv"
 )
 
-var skb_log = log.New(os.Stdout, "[SKB] ", log.Ldate|log.Lmicroseconds|log.Lshortfile)
-
-//=============================================================================
+// =============================================================================
 // SockAddr -- generic structure for network addresses
 // Can hold either an IPv4 or IPv6 address
-//=============================================================================
+// =============================================================================
 type SockAddr struct {
 	Port uint16
 	IP   net.IP
@@ -43,10 +39,10 @@ func (s SockAddr) GetType() AddressType {
 	}
 }
 
-//=============================================================================
+// =============================================================================
 // SkBuff is the struct that represents a packet as it moves
 // through the networking stack.
-//=============================================================================
+// =============================================================================
 type SkBuff struct {
 	Data         []byte
 	protocolType ProtocolType
@@ -85,6 +81,7 @@ func (skb *SkBuff) StripBytes(n int) {
 
 func (skb *SkBuff) GetResp() SkbResponse {
 	resp := <-skb.RespChan
+
 	return resp
 }
 
@@ -100,6 +97,7 @@ func (skb *SkBuff) GetRxIface() (NetworkInterface, error) {
 	if skb.rxIface == nil {
 		return nil, errors.New("network interface not set")
 	}
+
 	return skb.rxIface, nil
 }
 
@@ -111,6 +109,7 @@ func (skb *SkBuff) GetTxIface() (NetworkInterface, error) {
 	if skb.txIface == nil {
 		return nil, errors.New("network interface not set")
 	}
+
 	return skb.txIface, nil
 }
 
@@ -122,6 +121,7 @@ func (skb *SkBuff) GetL2Header() (L2Header, error) {
 	if skb.l2Header == nil {
 		return nil, errors.New("L2 header not set")
 	}
+
 	return skb.l2Header, nil
 }
 
@@ -133,6 +133,7 @@ func (skb *SkBuff) GetL3Header() (L3Header, error) {
 	if skb.l3Header == nil {
 		return nil, errors.New("L3 header not set")
 	}
+
 	return skb.l3Header, nil
 }
 
@@ -144,6 +145,7 @@ func (skb *SkBuff) GetL4Header() (L4Header, error) {
 	if skb.l4Header == nil {
 		return nil, errors.New("L4 header not set")
 	}
+
 	return skb.l4Header, nil
 }
 
@@ -199,9 +201,9 @@ func (skb *SkBuff) SetDstPort(port uint16) {
 	skb.dstAddr.Port = port
 }
 
-//=============================================================================
+// =============================================================================
 // SkBuffChannels are used to pass packets up and down the stack.
-//=============================================================================
+// =============================================================================
 
 type SkBuffReader interface {
 	RxChan() chan *SkBuff
@@ -217,29 +219,29 @@ type SkBuffReaderWriter interface {
 }
 
 type SkBuffChannels struct {
-	rx_chan chan *SkBuff
-	tx_chan chan *SkBuff
+	rxChan chan *SkBuff
+	txChan chan *SkBuff
 }
 
 func NewSkBuffChannels() SkBuffChannels {
 	return SkBuffChannels{
-		rx_chan: make(chan *SkBuff),
-		tx_chan: make(chan *SkBuff),
+		rxChan: make(chan *SkBuff),
+		txChan: make(chan *SkBuff),
 	}
 }
 
-func (skb_channels SkBuffChannels) RxChan() chan *SkBuff {
-	return skb_channels.rx_chan
+func (skbChannels SkBuffChannels) RxChan() chan *SkBuff {
+	return skbChannels.rxChan
 }
 
-func (skb_channels SkBuffChannels) TxChan() chan *SkBuff {
-	return skb_channels.tx_chan
+func (skbChannels SkBuffChannels) TxChan() chan *SkBuff {
+	return skbChannels.txChan
 }
 
-//==============================================================================
+// ==============================================================================
 // SkbResponse is used to return a response from the network stack about the
 // status of a packet.
-//==============================================================================
+// ==============================================================================
 
 type SkbResponse struct {
 	Error        error
@@ -254,9 +256,9 @@ func SkbErrorResp(err error) SkbResponse {
 	}
 }
 
-func SkbWriteResp(bytes_written int) SkbResponse {
+func SkbWriteResp(bytesWritten int) SkbResponse {
 	return SkbResponse{
-		BytesWritten: bytes_written,
+		BytesWritten: bytesWritten,
 	}
 }
 

@@ -21,7 +21,7 @@ type Iface struct {
 	// The type of L2 protocol that this interface supports.
 	IfType netstack.ProtocolType
 
-	tx_chan   chan *netstack.SkBuff
+	txChan    chan *netstack.SkBuff
 	LinkLayer *LinkLayer
 
 	// TODO: Add interface statistics (low priority)
@@ -32,7 +32,7 @@ func (dev *Iface) GetType() netstack.ProtocolType {
 }
 
 func (dev *Iface) TxChan() chan *netstack.SkBuff {
-	return dev.tx_chan
+	return dev.txChan
 }
 
 func (dev *Iface) HandleRx(data []byte) {
@@ -54,16 +54,17 @@ func (dev *Iface) GetHWAddr() net.HardwareAddr {
 	return dev.HwAddr
 }
 
-func (iface *Iface) GetIfAddrs() []netstack.IfAddr {
-	return iface.IfAddrs
+func (dev *Iface) GetIfAddrs() []netstack.IfAddr {
+	return dev.IfAddrs
 }
 
-func (iface *Iface) HasIPAddr(ip net.IP) bool {
-	for _, ifAddr := range iface.IfAddrs {
+func (dev *Iface) HasIPAddr(ip net.IP) bool {
+	for _, ifAddr := range dev.IfAddrs {
 		if ifAddr.IP.Equal(ip) {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -75,9 +76,9 @@ func (dev *Iface) Write(data []byte) error {
 	return nil
 }
 
-/******************************************************************************
-	TAP Device
-*******************************************************************************/
+// ============================================================================
+// TAP Device
+// ============================================================================
 
 type TAPDevice struct {
 	Iface
@@ -91,7 +92,7 @@ func NewTap(tap *tuntap.Interface, name string, hwAddr net.HardwareAddr, addrs [
 	netdev.HwAddr = hwAddr
 	netdev.IfAddrs = addrs
 	netdev.IfType = netstack.ProtocolTypeEthernet
-	netdev.tx_chan = make(chan *netstack.SkBuff)
+	netdev.txChan = make(chan *netstack.SkBuff)
 
 	return &netdev
 }
@@ -99,6 +100,7 @@ func NewTap(tap *tuntap.Interface, name string, hwAddr net.HardwareAddr, addrs [
 func (dev *TAPDevice) Read() ([]byte, error) {
 	data := make([]byte, 1500)
 	n, err := dev.tap.Read(data)
+
 	return data[:n], err
 }
 
@@ -113,7 +115,7 @@ func (dev *TAPDevice) Write(data []byte) error {
 
 type LoopbackDevice struct {
 	Iface
-	rx_chan chan []byte
+	rxChan chan []byte
 }
 
 func NewLoopback() *LoopbackDevice {
@@ -128,8 +130,9 @@ func NewLoopback() *LoopbackDevice {
 	netdev.HwAddr = net.HardwareAddr{0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 	netdev.Mtu = 1500
 	netdev.IfType = netstack.ProtocolTypeEthernet
-	netdev.tx_chan = make(chan *netstack.SkBuff)
-	netdev.rx_chan = make(chan []byte)
+	netdev.txChan = make(chan *netstack.SkBuff)
+	netdev.rxChan = make(chan []byte)
+
 	return &netdev
 }
 
@@ -141,6 +144,6 @@ func (dev *LoopbackDevice) Read() ([]byte, error) {
 
 // and write to the read channel
 func (dev *LoopbackDevice) Write(data []byte) error {
-	dev.rx_chan <- data
+	dev.rxChan <- data
 	return nil
 }

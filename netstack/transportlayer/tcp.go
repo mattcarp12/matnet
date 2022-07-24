@@ -3,6 +3,7 @@ package transportlayer
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"math/rand"
 	"net"
 	"time"
@@ -10,10 +11,10 @@ import (
 	"github.com/mattcarp12/matnet/netstack"
 )
 
-/*******************************************************************************
-	TCP Header
-*******************************************************************************/
-type TcpHeader struct {
+// =============================================================================
+// TCP Header
+// =============================================================================
+type TCPHeader struct {
 	SrcPort   uint16
 	DstPort   uint16
 	SeqNum    uint32
@@ -23,7 +24,7 @@ type TcpHeader struct {
 	Window    uint16
 	Checksum  uint16
 	UrgentPtr uint16
-	Options   *TcpOptions
+	Options   TCPOptions
 }
 
 const (
@@ -37,13 +38,19 @@ const (
 	TCP_CWR = 0x80
 )
 
-func (h TcpHeader) Marshal() []byte {
-	b := make([]byte, 20)
+const (
+	TCPHeaderMinSize = 20
+	TCPWordSize      = 4
+)
+
+func (h TCPHeader) Marshal() []byte {
+	b := make([]byte, TCPHeaderMinSize)
 	binary.BigEndian.PutUint16(b[0:2], h.SrcPort)
 	binary.BigEndian.PutUint16(b[2:4], h.DstPort)
 	binary.BigEndian.PutUint32(b[4:8], h.SeqNum)
 	binary.BigEndian.PutUint32(b[8:12], h.AckNum)
-	copy(b[12:14], []byte{byte(h.HeaderLen), byte(h.BitFlags)})
+	headerLen := h.HeaderLen << 4
+	copy(b[12:14], []byte{headerLen, h.BitFlags})
 	binary.BigEndian.PutUint16(b[14:16], h.Window)
 	binary.BigEndian.PutUint16(b[16:18], h.Checksum)
 	binary.BigEndian.PutUint16(b[18:20], h.UrgentPtr)
@@ -55,83 +62,94 @@ func (h TcpHeader) Marshal() []byte {
 	return b
 }
 
-func (h *TcpHeader) Unmarshal(b []byte) error {
+func (h *TCPHeader) Unmarshal(b []byte) error {
 	h.SrcPort = binary.BigEndian.Uint16(b[0:2])
 	h.DstPort = binary.BigEndian.Uint16(b[2:4])
 	h.SeqNum = binary.BigEndian.Uint32(b[4:8])
 	h.AckNum = binary.BigEndian.Uint32(b[8:12])
-	h.HeaderLen = uint8(b[12]) >> 4
-	h.BitFlags = uint8(b[12]) & 0x0f
-	h.Window = binary.BigEndian.Uint16(b[16:18])
-	h.Checksum = binary.BigEndian.Uint16(b[18:20])
-	h.UrgentPtr = binary.BigEndian.Uint16(b[20:22])
+	h.HeaderLen = b[12] >> 4
+	h.BitFlags = b[13]
+	h.Window = binary.BigEndian.Uint16(b[14:16])
+	h.Checksum = binary.BigEndian.Uint16(b[16:18])
+	h.UrgentPtr = binary.BigEndian.Uint16(b[18:20])
 
-	if h.HeaderLen > 5 {
-		h.Options = &TcpOptions{}
-		h.Options.Unmarshal(b[22 : h.HeaderLen*4])
+	if h.SizeInBytes() > TCPHeaderMinSize {
+		h.Options = TCPOptions{}
+		optionsBytes := b[20:h.SizeInBytes()]
+		h.Options.Unmarshal(optionsBytes)
 	}
 
 	return nil
 }
 
-func (h TcpHeader) Size() int {
-	return int(h.HeaderLen * 4)
+func (h TCPHeader) SizeInBytes() int {
+	return int(h.HeaderLen * TCPWordSize)
 }
 
 // Implement the netstack.L4Header interface
-func (h TcpHeader) GetSrcPort() uint16 {
+func (h TCPHeader) GetSrcPort() uint16 {
 	return h.SrcPort
 }
 
-func (h TcpHeader) GetDstPort() uint16 {
+func (h TCPHeader) GetDstPort() uint16 {
 	return h.DstPort
 }
 
-func (h TcpHeader) GetType() netstack.ProtocolType {
+func (h TCPHeader) GetType() netstack.ProtocolType {
 	return netstack.ProtocolTypeTCP
 }
 
-func (h TcpHeader) IsFIN() bool {
+func (h TCPHeader) IsFIN() bool {
 	return h.BitFlags&TCP_FIN == TCP_FIN
 }
 
-func (h *TcpHeader) SetFIN() {
+func (h *TCPHeader) SetFIN() {
 	h.BitFlags |= TCP_FIN
 }
 
-func (h TcpHeader) IsSYN() bool {
+func (h TCPHeader) IsSYN() bool {
 	return h.BitFlags&TCP_SYN == TCP_SYN
 }
 
-func (h *TcpHeader) SetSYN() {
+func (h *TCPHeader) SetSYN() {
 	h.BitFlags |= TCP_SYN
 }
 
-func (h TcpHeader) IsRST() bool {
+func (h TCPHeader) IsRST() bool {
 	return h.BitFlags&TCP_RST == TCP_RST
 }
 
-func (h *TcpHeader) SetRST() {
+func (h *TCPHeader) SetRST() {
 	h.BitFlags |= TCP_RST
 }
 
-func (h TcpHeader) IsPSH() bool {
+func (h TCPHeader) IsPSH() bool {
 	return h.BitFlags&TCP_PSH == TCP_PSH
 }
 
-func (h *TcpHeader) SetPSH() {
+func (h *TCPHeader) SetPSH() {
 	h.BitFlags |= TCP_PSH
 }
 
-func (h TcpHeader) IsACK() bool {
+func (h TCPHeader) IsACK() bool {
 	return h.BitFlags&TCP_ACK == TCP_ACK
 }
 
-func (h *TcpHeader) SetACK() {
+func (h *TCPHeader) SetACK() {
 	h.BitFlags |= TCP_ACK
 }
 
-type TcpOptions struct {
+type TCPOptionKind uint8
+
+const (
+	TCPOptionKindEndOfOptions TCPOptionKind = 0
+	TCPOptionKindNop                        = 1
+	TCPOptionKindMSS                        = 2
+	TCPOptionKindWS                         = 3
+)
+
+type TCPOption struct {
+	Kind      TCPOptionKind
 	Mss       uint16
 	Nop       uint8
 	Nop2      uint8
@@ -141,7 +159,17 @@ type TcpOptions struct {
 	Timestamp uint8
 }
 
-func (o TcpOptions) Marshal() []byte {
+type TCPOptions []TCPOption
+
+func (o TCPOptions) Marshal() []byte {
+	b := make([]byte, 0)
+	for _, option := range o {
+		b = append(b, option.Marshal()...)
+	}
+	return b
+}
+
+func (o TCPOption) Marshal() []byte {
 	b := make([]byte, 12)
 	binary.BigEndian.PutUint16(b[0:2], o.Mss)
 	b[2] = o.Nop
@@ -150,21 +178,44 @@ func (o TcpOptions) Marshal() []byte {
 	b[5] = o.SackPerm
 	b[6] = o.Sack
 	b[7] = o.Timestamp
+
 	return b
 }
 
-func (o *TcpOptions) Unmarshal(b []byte) {
-	o.Mss = binary.BigEndian.Uint16(b[0:2])
-	o.Nop = b[2]
-	o.Nop2 = b[3]
-	o.WScale = b[4]
-	o.SackPerm = b[5]
-	o.Sack = b[6]
-	o.Timestamp = b[7]
+func (o *TCPOptions) Unmarshal(b []byte) {
+	remainingLength := len(b)
+	optionLength := 0
+
+	for {
+		optionKind := TCPOptionKind(b[0])
+		option := TCPOption{}
+		option.Kind = optionKind
+
+		switch optionKind {
+		case TCPOptionKindEndOfOptions, TCPOptionKindNop:
+			// End of options
+			return
+		case 2:
+			// MSS
+			option.Mss = binary.BigEndian.Uint16(b[2:4])
+			optionLength = int(b[1])
+
+		default:
+			fmt.Printf("Unknown option kind: %d\n", optionKind)
+		}
+
+		b = b[optionLength:]
+		remainingLength -= optionLength
+
+		*o = append(*o, option)
+
+		if remainingLength == 0 {
+			return
+		}
+	}
 }
 
-// TCP Pseudo Header
-type TcpPseudoHeader struct {
+type TCPPseudoHeader struct {
 	SrcIP    net.IP
 	DstIP    net.IP
 	Zero     uint8
@@ -172,7 +223,7 @@ type TcpPseudoHeader struct {
 	Length   uint16
 }
 
-func (ph TcpPseudoHeader) Marshal() []byte {
+func (ph TCPPseudoHeader) Marshal() []byte {
 	b := []byte{}
 	b = append(b, ph.SrcIP...)
 	b = append(b, ph.DstIP...)
@@ -180,12 +231,13 @@ func (ph TcpPseudoHeader) Marshal() []byte {
 	b = append(b, ph.Protocol)
 	b = append(b, byte(ph.Length>>8))
 	b = append(b, byte(ph.Length))
+
 	return b
 }
 
-/*******************************************************************************
-	TCP Control Block
-*******************************************************************************/
+// ============================================================================
+// TCP Control Block
+// ============================================================================
 
 type TCPState int
 
@@ -231,6 +283,7 @@ const (
 )
 
 type TCB struct {
+	ID    string
 	State TCPState
 
 	SendUNA uint32 // Unacknowledged sequence number
@@ -251,10 +304,17 @@ type TCB struct {
 	RxQueue      SegmentQueue
 }
 
-func NewTCB() *TCB {
-	return &TCB{
-		State: TCP_STATE_CLOSED,
+func (tcp *TCPProtocol) NewTCB(connID string) *TCB {
+	tcb := &TCB{
+		ID:           connID,
+		State:        TCP_STATE_CLOSED,
+		RxChan:       make(chan *netstack.SkBuff),
+		RxChanSorted: make(chan *netstack.SkBuff),
 	}
+
+	tcp.ConnTable[connID] = tcb
+
+	return tcb
 }
 
 type SegmentQueue []*netstack.SkBuff
@@ -266,19 +326,28 @@ type SegmentQueue []*netstack.SkBuff
 // 	return segment1.SeqNum < segment2.SeqNum
 // }
 
-/*******************************************************************************
-	TCP Protocol
-*******************************************************************************/
-type TcpProtocol struct {
+// ============================================================================
+// TCP Protocol
+// ============================================================================
+type TCPProtocol struct {
 	netstack.IProtocol
 	ConnTable map[string]*TCB
 }
 
-func NewTCP() *TcpProtocol {
-	tcp := &TcpProtocol{
+var (
+	ErrInvalidSequenceNumber = errors.New("invalid sequence number")
+	ErrInvalidAckNumber      = errors.New("invalid ack number")
+	ErrAckNotSet             = errors.New("ack bit not set in header")
+	ErrConnectionReset       = errors.New("connection reset")
+)
+
+func NewTCP() *TCPProtocol {
+	tcp := &TCPProtocol{
 		IProtocol: netstack.NewIProtocol(netstack.ProtocolTypeTCP),
 		ConnTable: make(map[string]*TCB),
 	}
+	tcp.Log = netstack.NewLogger("TCP")
+
 	return tcp
 }
 
@@ -290,9 +359,10 @@ func NewTCP() *TcpProtocol {
 	- Put the packet into the segment processing queue.
 */
 
-func (tcp *TcpProtocol) HandleRx(skb *netstack.SkBuff) {
+func (tcp *TCPProtocol) HandleRx(skb *netstack.SkBuff) {
+	tcp.Log.Printf("HandleRx: %+v\n", skb)
 	// Create a new TCP header
-	tcpHeader := &TcpHeader{}
+	tcpHeader := &TCPHeader{}
 
 	// Unmarshal the TCP header, handle errors
 	if err := tcpHeader.Unmarshal(skb.Data); err != nil {
@@ -300,34 +370,41 @@ func (tcp *TcpProtocol) HandleRx(skb *netstack.SkBuff) {
 		return
 	}
 
-	skb.StripBytes(tcpHeader.Size())
+	skb.StripBytes(tcpHeader.SizeInBytes())
 	skb.SetSrcPort(tcpHeader.SrcPort)
 	skb.SetDstPort(tcpHeader.DstPort)
 
 	// TODO: Handle fragmentation, possibly reassemble
 
-	// Find the TCB for this connection
-	connID := ConnectionID(skb.GetSrcAddr(), skb.GetDstAddr())
+	// Find the TCB for this connection. Here, LocalAddr = DstAddr, RemoteAddr = SrcAddr.
+	connID := ConnectionID(skb.GetDstAddr(), skb.GetSrcAddr())
 
 	var tcb *TCB
+
 	tcb, ok := tcp.ConnTable[connID]
 	if !ok {
 		// TCB does not exist. All data is discarded.
 		if tcpHeader.IsRST() {
 			skb.Error(errors.New("TCP: RST received for non-existent connection"))
 			return
-		} else {
-			tcp.SendEmptyRst(tcpHeader)
 		}
+
+		tcp.SendEmptyRst(tcpHeader)
 	}
+
+	tcp.Log.Printf("TCP Header: %+v\n", tcpHeader)
+	tcp.Log.Printf("TCB: %+v\n", tcb)
+	tcp.Log.Printf("Header IsSyn: %v\n", tcpHeader.IsSYN())
+	tcp.Log.Printf("Header IsACK: %v\n", tcpHeader.IsACK())
 
 	// Handle the TCP packet
 
 	// Check the sequence number, make sure it's in the window
-	if tcpHeader.SeqNum < tcb.RecvNXT || tcpHeader.SeqNum > tcb.RecvNXT+tcb.RecvWND {
-		skb.Error(errors.New("TCP: SeqNum out of window"))
-		return
-	}
+	// if tcpHeader.SeqNum < tcb.RecvNXT || tcpHeader.SeqNum > tcb.RecvNXT+tcb.RecvWND {
+	// 	// skb.Error(errors.New("TCP: SeqNum out of window"))
+	// 	tcp.Log.Printf("TCP: SeqNum out of window\n")
+	// 	return
+	// }
 
 	switch tcb.State {
 	default:
@@ -343,20 +420,9 @@ func (tcp *TcpProtocol) HandleRx(skb *netstack.SkBuff) {
 			tcb.State = TCP_STATE_ESTABLISHED
 		}
 	case TCP_STATE_SYN_SENT:
-		if tcpHeader.IsSYN() && tcpHeader.IsACK() {
-			// Check sequence number
-
-			// Check ACK number
-
-			// Check window size
-
-			// Check urgent pointer
-
-			// Check options
-
-			// Check checksum
-
-			tcb.State = TCP_STATE_ESTABLISHED
+		if err := tcp.HandleSynSent(skb, tcb, tcpHeader); err != nil {
+			skb.Error(err)
+			return
 		}
 
 	}
@@ -366,7 +432,7 @@ func (tcp *TcpProtocol) HandleRx(skb *netstack.SkBuff) {
 	// Everything is good, send to user space
 }
 
-func (tcp *TcpProtocol) HandleTx(skb *netstack.SkBuff) {
+func (tcp *TCPProtocol) HandleTx(skb *netstack.SkBuff) {
 	// Create new TCP header
 
 	// Calculate checksum
@@ -390,16 +456,16 @@ func ISN() uint32 {
 	return rand.Uint32()
 }
 
-//==============================================================================
+// ==============================================================================
 // TCP Event Handlers
-//==============================================================================
+// ==============================================================================
 
 // SendSynAck sends a SYN/ACK packet to the remote TCP in response
 // to a SYN packet. The TCB is updated with the remote TCP's ISN.
 // The TCBs state is set to TCP_STATE_SYN_RCVD.
-func (tcp *TcpProtocol) SendSynAck(skb *netstack.SkBuff, tcb *TCB, requestHeader *TcpHeader) {
+func (tcp *TCPProtocol) SendSynAck(skb *netstack.SkBuff, tcb *TCB, requestHeader *TCPHeader) {
 	// Create a new TCP header
-	newHeader := &TcpHeader{}
+	newHeader := &TCPHeader{}
 
 	// Set the TCP header fields
 	newHeader.SrcPort = requestHeader.GetDstPort()
@@ -432,7 +498,7 @@ func (tcp *TcpProtocol) SendSynAck(skb *netstack.SkBuff, tcb *TCB, requestHeader
 	newSkb.SetSrcPort(skb.GetDstPort())
 	newSkb.SetDstPort(skb.GetSrcPort())
 
-	set_skb_type(newSkb)
+	setSkbType(newSkb)
 
 	// Send to the network layer
 	tcp.TxDown(newSkb)
@@ -441,9 +507,48 @@ func (tcp *TcpProtocol) SendSynAck(skb *netstack.SkBuff, tcb *TCB, requestHeader
 	newSkb.GetResp()
 }
 
-func (tcp *TcpProtocol) SendEmptyRst(tcpHeader *TcpHeader) {
+func (tcp *TCPProtocol) SendAck(skb *netstack.SkBuff, tcb *TCB, requestHeader *TCPHeader) {
+	tcp.Log.Printf("Sending Ack for %+v\n", requestHeader)
+	newHeader := &TCPHeader{}
+
+	newHeader.SrcPort = requestHeader.GetDstPort()
+	newHeader.DstPort = requestHeader.GetSrcPort()
+	newHeader.BitFlags = TCP_ACK
+	newHeader.SeqNum = tcb.SendNXT
+	newHeader.AckNum = tcb.RecvNXT
+	newHeader.HeaderLen = 5
+	newHeader.Window = 0xFFFF
+	newHeader.UrgentPtr = 0
+
+	newSkb := netstack.NewSkBuff([]byte{})
+	newSkb.SetDstIP(skb.GetSrcIP())
+	newSkb.SetSrcIP(skb.GetDstIP())
+	newSkb.SetSrcPort(newHeader.SrcPort)
+	newSkb.SetDstPort(newHeader.DstPort)
+
+	setTCPChecksum(newSkb, newHeader)
+
+	newSkb.SetL4Header(newHeader)
+	newSkb.PrependBytes(newHeader.Marshal())
+
+	rxIface, err := skb.GetRxIface()
+	if err != nil {
+		tcp.Log.Printf("Error getting rxIface: %v\n", err)
+		return
+	}
+
+	newSkb.SetTxIface(rxIface)
+
+	setSkbType(newSkb)
+
+	tcp.TxDown(newSkb)
+
+	newSkb.GetResp()
+}
+
+func (tcp *TCPProtocol) SendEmptyRst(tcpHeader *TCPHeader) {
 	// Create a new TCP header
-	newHeader := &TcpHeader{}
+	newHeader := &TCPHeader{}
 
 	// Set the TCP header fields
 	newHeader.SrcPort = tcpHeader.GetDstPort()
@@ -472,16 +577,22 @@ func (tcp *TcpProtocol) SendEmptyRst(tcpHeader *TcpHeader) {
 //
 // This function sends a SYN packet to the remote TCP
 // and returns immediately.
-func (tcp *TcpProtocol) OpenConnection(srcAddr, dstAddr netstack.SockAddr) error {
+func (tcp *TCPProtocol) OpenConnection(srcAddr, dstAddr netstack.SockAddr, iface netstack.NetworkInterface) error {
+	tcp.Log.Printf("OpenConnection: %v -> %v\n", srcAddr, dstAddr)
+
 	// Make empty skb
 	skb := netstack.NewSkBuff([]byte{})
 
-	if err := set_skb_type(skb); err != nil {
+	skb.SetSrcAddr(srcAddr)
+	skb.SetDstAddr(dstAddr)
+	skb.SetTxIface(iface)
+
+	if err := setSkbType(skb); err != nil {
 		return err
 	}
 
 	// Make TCP header
-	header := &TcpHeader{}
+	header := &TCPHeader{}
 	isn := ISN()
 
 	header.SrcPort = srcAddr.Port
@@ -493,35 +604,35 @@ func (tcp *TcpProtocol) OpenConnection(srcAddr, dstAddr netstack.SockAddr) error
 	header.Window = 0xFFFF
 	header.UrgentPtr = 0
 
-	set_tcp_checksum(skb, header)
+	setTCPChecksum(skb, header)
+	skb.SetL4Header(header)
 	skb.PrependBytes(header.Marshal())
 
 	// Send to the network layer
 	tcp.TxDown(skb)
+
 	if skbResp := skb.GetResp(); skbResp.Error != nil {
+		tcp.Log.Printf("OpenConnection: Error sending SYN: %v\n", skbResp.Error)
 		return skbResp.Error
 	}
 
 	// Create a new TCB
-	tcb := NewTCB()
+	connID := ConnectionID(srcAddr, dstAddr)
+	tcb := tcp.NewTCB(connID)
 	tcb.State = TCP_STATE_SYN_SENT
 	tcb.SendUNA = isn
 	tcb.SendNXT = isn + 1
 
-	// Update the TCB table
-	connID := ConnectionID(srcAddr, dstAddr)
-	tcp.ConnTable[connID] = tcb
-
 	return nil
 }
 
-func set_tcp_checksum(skb *netstack.SkBuff, header *TcpHeader) {
+func setTCPChecksum(skb *netstack.SkBuff, header *TCPHeader) {
 	// Set the checksum initially to 0
 	header.Checksum = 0
 
 	// Make pseudo header
 	// TODO: Handle IPv6
-	ph := &TcpPseudoHeader{
+	ph := &TCPPseudoHeader{
 		SrcIP:    skb.GetSrcIP(),
 		DstIP:    skb.GetDstIP(),
 		Zero:     0,
@@ -537,7 +648,7 @@ func set_tcp_checksum(skb *netstack.SkBuff, header *TcpHeader) {
 	header.Checksum = netstack.Checksum(b)
 }
 
-func (tcp *TcpProtocol) CloseConnection() {
+func (tcp *TCPProtocol) CloseConnection() {
 	// This function is meant to be called by the Socket layer,
 	// in response to a socket close request.
 
@@ -547,9 +658,56 @@ func (tcp *TcpProtocol) CloseConnection() {
 	// Wait for an ACK
 }
 
-//==============================================================================
+// This function is called when a packet is received and the state is TCP_STATE_SYN_SENT
+func (tcp *TCPProtocol) HandleSynSent(skb *netstack.SkBuff, tcb *TCB, tcpHeader *TCPHeader) error {
+	tcp.Log.Printf("HandleSynSent: %v\n", tcpHeader)
+	// First check the ACK bit
+	if tcpHeader.IsACK() {
+		if tcpHeader.AckNum <= tcb.SendISN || tcpHeader.AckNum > tcb.SendNXT {
+			tcp.SendEmptyRst(tcpHeader)
+			return fmt.Errorf("HandleSynSent: %w", ErrInvalidSequenceNumber)
+		}
+	}
+
+	// Check if the ACK number is valid
+	if tcpHeader.AckNum < tcb.SendUNA && tcpHeader.AckNum > tcb.SendNXT {
+		return fmt.Errorf("HandleSynSent: %w", ErrInvalidAckNumber)
+	}
+
+	// Second check the RST bit
+	if tcpHeader.IsRST() {
+		// TODO: How to signal to the user that the connection was reset?
+
+		// Remove the TCB
+		delete(tcp.ConnTable, tcb.ID)
+
+		return ErrConnectionReset
+	}
+
+	// TODO: Check Security and Precedence bits
+
+	// Fourth check the SYN bit
+	if tcpHeader.IsSYN() {
+		tcb.RecvNXT = tcpHeader.SeqNum + 1
+		tcb.RecvISN = tcpHeader.SeqNum
+		tcb.SendUNA = tcpHeader.AckNum
+
+		// Update the state
+		if tcb.SendUNA > tcb.SendISN {
+			tcb.State = TCP_STATE_ESTABLISHED
+			tcp.SendAck(skb, tcb, tcpHeader)
+		} else {
+			tcb.State = TCP_STATE_SYN_RCVD
+			tcp.SendSynAck(skb, tcb, tcpHeader)
+		}
+	}
+
+	return nil
+}
+
+// ==============================================================================
 // Sequence Number Functions
-//==============================================================================
+// ==============================================================================
 
 func IsLessThan(isn, seq1, seq2 uint32) bool {
 	// Compare using modular arithmetic

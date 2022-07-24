@@ -3,14 +3,10 @@ package linklayer
 import (
 	"encoding/binary"
 	"errors"
-	logging "log"
 	"net"
-	"os"
 
 	"github.com/mattcarp12/matnet/netstack"
 )
-
-var ethLog = logging.New(os.Stdout, "[Ethernet] ", logging.Ldate|logging.Lmicroseconds|logging.Lshortfile)
 
 // =============================================================================
 // EthernetHeader
@@ -51,10 +47,11 @@ func (eh *EthernetHeader) Unmarshal(b []byte) error {
 }
 
 func (eh *EthernetHeader) Marshal() []byte {
-	d := make([]byte, 14)
+	d := make([]byte, EthernetHeaderSize)
 	copy(d[0:6], eh.addr.DstAddr)
 	copy(d[6:12], eh.addr.SrcAddr)
 	binary.BigEndian.PutUint16(d[12:14], eh.EtherType)
+
 	return d
 }
 
@@ -111,20 +108,25 @@ func IsUnicast(addr net.HardwareAddr) bool {
 type EthernetProtocol struct {
 	netstack.IProtocol
 
-	// arp represents the neighbor subsystem for either ipv4 (arp) or ipv6 (ndp)
-	arp NeighborProtocol
+	// neigh represents the neighbor subsystem for either ipv4 (arp) or ipv6 (ndp)
+	neigh *NeighborSubsystem
 }
 
 func NewEthernet() *EthernetProtocol {
 	eth := &EthernetProtocol{
 		IProtocol: netstack.NewIProtocol(netstack.ProtocolTypeEthernet),
 	}
+	eth.Log = netstack.NewLogger("ETHERNET")
 
 	return eth
 }
 
-func (eth *EthernetProtocol) SetNeighborProtocol(arp NeighborProtocol) {
-	eth.arp = arp
+func (eth *EthernetProtocol) SetNeighborSubsystem(neigh *NeighborSubsystem) {
+	eth.neigh = neigh
+}
+
+func (eth *EthernetProtocol) AddNeighborProtocol(prot NeighborProtocol) {
+	eth.neigh.AddProtocol(prot)
 }
 
 // HandleRx is called when a skbuff from the network interface is ready
@@ -135,14 +137,14 @@ func (eth *EthernetProtocol) HandleRx(skb *netstack.SkBuff) {
 
 	// Parse the ethernet header
 	if err := ethHdr.Unmarshal(skb.Data); err != nil {
-		ethLog.Printf("Error parsing ethernet header: %v", err)
+		eth.Log.Printf("Error parsing ethernet header: %v", err)
 		return
 	}
 
 	// Get the RxIface
 	iface, err := skb.GetRxIface()
 	if err != nil {
-		ethLog.Printf("Error getting rx iface: %v", err)
+		eth.Log.Printf("Error getting rx iface: %v", err)
 		return
 	}
 
@@ -150,7 +152,7 @@ func (eth *EthernetProtocol) HandleRx(skb *netstack.SkBuff) {
 	if IsUnicast(ethHdr.addr.DstAddr) {
 		mac := iface.GetHWAddr().String()
 		if ethHdr.addr.DstAddr.String() != mac {
-			ethLog.Printf("Packet not for this interface (dst: %s, src: %s)", ethHdr.addr.DstAddr.String(), mac)
+			eth.Log.Printf("Packet not for this interface (dst: %s, src: %s)", ethHdr.addr.DstAddr.String(), mac)
 			return
 		}
 	} // If multicast or broadcast, continue processing
@@ -167,7 +169,7 @@ func (eth *EthernetProtocol) HandleRx(skb *netstack.SkBuff) {
 
 	// If ARP packet, pass to ARP subsystem
 	if ethHdr.EtherType == EthernetTypeARP {
-		eth.arp.HandleRx(skb)
+		eth.neigh.HandleRx(skb)
 		return
 	}
 
@@ -180,7 +182,7 @@ func (eth *EthernetProtocol) HandleTx(skb *netstack.SkBuff) {
 	// Get the TxIface
 	iface, err := skb.GetTxIface()
 	if err != nil {
-		ethLog.Printf("Error getting tx iface: %s", err.Error())
+		eth.Log.Printf("Error getting tx iface: %s", err.Error())
 		return
 	}
 
@@ -196,38 +198,43 @@ func (eth *EthernetProtocol) HandleTx(skb *netstack.SkBuff) {
 	*/
 
 	// Get the destination hardware address from the arp cache
-	destHWAddr, err := eth.arp.Resolve(skb.GetDstIP())
+	// TODO: Only look up the "next hop" address, so the ARP cache
+	// isn't huge.
+	destHWAddr, err := eth.neigh.Resolve(skb.GetDstIP())
 	if err != nil {
-		ethLog.Printf("Error resolving destination hardware address: %v", err)
+		eth.Log.Printf("Error resolving destination hardware address: %v", err)
 
 		// If we can't get the hardware address, send an arp request
-		go eth.arp.SendRequest(skb.GetSrcIP(), skb.GetDstIP(), iface)
+		go eth.neigh.SendRequest(skb)
 
 		// Make sure to send response for the dropped skb
 		// TODO: Make request cache to handle requests once the arp response is received
-		skb.Error(err)
+		// skb.Error(err)
 
 		return
 	}
 
 	l3header, err := skb.GetL3Header()
 	if err != nil {
-		ethLog.Printf("Error getting l3 header: %s", err.Error())
+		eth.Log.Printf("Error getting l3 header: %s", err.Error())
 		return
 	}
 
 	// Create ethernet header
-	eth_header := EthernetHeader{}
-	eth_header.addr.DstAddr = destHWAddr
-	eth_header.addr.SrcAddr = iface.GetHWAddr()
-	eth_header.EtherType, err = GetEtherTypeFromProtocolType(l3header.GetType())
+	ethHdr := EthernetHeader{}
+
+	ethHdr.addr.DstAddr = destHWAddr
+
+	ethHdr.addr.SrcAddr = iface.GetHWAddr()
+
+	ethHdr.EtherType, err = GetEtherTypeFromProtocolType(l3header.GetType())
 	if err != nil {
-		ethLog.Printf("Error getting EtherType: %v", err)
+		eth.Log.Printf("Error getting EtherType: %v", err)
 		return
 	}
 
 	// Prepend ethernet header to skbuff
-	skb.PrependBytes(eth_header.Marshal())
+	skb.PrependBytes(ethHdr.Marshal())
 
 	// Pass to network interface
 	iface.TxChan() <- skb

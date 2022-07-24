@@ -62,8 +62,8 @@ func New(config Config) (*Interface, error) {
 }
 
 // Name returns the interface name of ifce, e.g. tun0, tap1, tun0, etc..
-func (ifce *Interface) Name() string {
-	return ifce.name
+func (iface *Interface) Name() string {
+	return iface.name
 }
 
 // DevicePermissions determines the owner and group owner for the newly created
@@ -84,34 +84,31 @@ type DevicePermissions struct {
 // Linux. A zero-value of such type is valid, yielding an interface
 // with OS defined name.
 type PlatformSpecificParams struct {
-	// Name is the name to be set for the interface to be created. This overrides
-	// the default name assigned by OS such as tap0 or tun0. A zero-value of this
-	// field, i.e. an empty string, indicates that the default name should be
-	// used.
-	Name string
-
 	// Persist specifies whether persistence mode for the interface device
 	// should be enabled or disabled.
 	Persist bool
-
-	// Permissions, if non-nil, specifies the owner and group owner for the
-	// interface.  A zero-value of this field, i.e. nil, indicates that no
-	// changes to owner or group will be made.
-	Permissions *DevicePermissions
 
 	// MultiQueue specifies whether the multiqueue flag should be set on the
 	// interface.  From version 3.8, Linux supports multiqueue tuntap which can
 	// uses multiple file descriptors (queues) to parallelize packets sending
 	// or receiving.
 	MultiQueue bool
+
+	// Permissions, if non-nil, specifies the owner and group owner for the
+	// interface.  A zero-value of this field, i.e. nil, indicates that no
+	// changes to owner or group will be made.
+	Permissions *DevicePermissions
+
+	// Name is the name to be set for the interface to be created. This overrides
+	// the default name assigned by OS such as tap0 or tun0. A zero-value of this
+	// field, i.e. an empty string, indicates that the default name should be
+	// used.
+	Name string
 }
 
 func openDev(config Config) (*Interface, error) {
-	var fdInt int
-	var err error
-
-	if fdInt, err = syscall.Open(
-		"/dev/net/tun", os.O_RDWR, 0); err != nil {
+	fdInt, err := syscall.Open("/dev/net/tun", os.O_RDWR, 0)
+	if err != nil {
 		return nil, err
 	}
 
@@ -146,21 +143,24 @@ func ioctl(fd uintptr, request uintptr, argp uintptr) error {
 	if errno != 0 {
 		return os.NewSyscallError("ioctl", errno)
 	}
+
 	return nil
 }
 
-func setupFd(config Config, fd uintptr) (name string, err error) {
+func setupFd(config Config, fd uintptr) (string, error) {
 	var flags uint16 = cIFFNOPI
 	if config.DeviceType == TUN {
 		flags |= cIFFTUN
 	} else {
 		flags |= cIFFTAP
 	}
+
 	if config.PlatformSpecificParams.MultiQueue {
 		flags |= cIFFMULTIQUEUE
 	}
 
-	if name, err = createInterface(fd, config.Name, flags); err != nil {
+	name, err := createInterface(fd, config.Name, flags)
+	if err != nil {
 		return "", err
 	}
 
@@ -171,27 +171,28 @@ func setupFd(config Config, fd uintptr) (name string, err error) {
 	return name, nil
 }
 
-func createInterface(fd uintptr, ifName string, flags uint16) (createdIFName string, err error) {
+func createInterface(fd uintptr, ifName string, flags uint16) (string, error) {
 	var req ifReq
 	req.Flags = flags
 	copy(req.Name[:], ifName)
 
-	err = ioctl(fd, syscall.TUNSETIFF, uintptr(unsafe.Pointer(&req)))
-	if err != nil {
-		return
+	if err := ioctl(fd, syscall.TUNSETIFF, uintptr(unsafe.Pointer(&req))); err != nil {
+		return "", err
 	}
 
-	createdIFName = strings.Trim(string(req.Name[:]), "\x00")
-	return
+	createdIFName := strings.Trim(string(req.Name[:]), "\x00")
+
+	return createdIFName, nil
 }
 
-func setDeviceOptions(fd uintptr, config Config) (err error) {
+func setDeviceOptions(fd uintptr, config Config) error {
 	if config.Permissions != nil {
-		if err = ioctl(fd, syscall.TUNSETOWNER, uintptr(config.Permissions.Owner)); err != nil {
-			return
+		if err := ioctl(fd, syscall.TUNSETOWNER, uintptr(config.Permissions.Owner)); err != nil {
+			return err
 		}
-		if err = ioctl(fd, syscall.TUNSETGROUP, uintptr(config.Permissions.Group)); err != nil {
-			return
+
+		if err := ioctl(fd, syscall.TUNSETGROUP, uintptr(config.Permissions.Group)); err != nil {
+			return err
 		}
 	}
 
@@ -200,5 +201,6 @@ func setDeviceOptions(fd uintptr, config Config) (err error) {
 	if config.Persist {
 		value = 1
 	}
+
 	return ioctl(fd, syscall.TUNSETPERSIST, uintptr(value))
 }

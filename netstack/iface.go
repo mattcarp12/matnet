@@ -36,6 +36,7 @@ func IfRxLoop(iface NetworkInterface) {
 		if err != nil {
 			continue
 		}
+
 		iface.HandleRx(data)
 	}
 }

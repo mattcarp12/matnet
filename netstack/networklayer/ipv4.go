@@ -190,9 +190,9 @@ func GetIPProtocolType(skb *netstack.SkBuff) (uint8, error) {
 	}
 }
 
-//=============================================================================
+// =============================================================================
 // IPv4 Protocol
-//=============================================================================
+// =============================================================================
 
 type IPv4 struct {
 	netstack.IProtocol
@@ -200,9 +200,12 @@ type IPv4 struct {
 }
 
 func NewIPv4() *IPv4 {
-	return &IPv4{
+	ipv4 := &IPv4{
 		IProtocol: netstack.NewIProtocol(netstack.ProtocolTypeIPv4),
 	}
+	ipv4.Log = netstack.NewLogger("IPV4")
+
+	return ipv4
 }
 
 func (ipv4 *IPv4) HandleRx(skb *netstack.SkBuff) {
@@ -250,6 +253,7 @@ func (ipv4 *IPv4) HandleRx(skb *netstack.SkBuff) {
 	// Check if packet is ICMP
 	if ipv4Header.Protocol == ProtocolICMP {
 		ipv4.Icmp.HandleRx(skb)
+
 		return
 	}
 
@@ -258,7 +262,7 @@ func (ipv4 *IPv4) HandleRx(skb *netstack.SkBuff) {
 }
 
 func (ipv4 *IPv4) HandleTx(skb *netstack.SkBuff) {
-	ip4_log.Println("HandleTx")
+	ipv4.Log.Println("HandleTx")
 
 	protocolType, err := GetIPProtocolType(skb)
 	if err != nil {
@@ -282,9 +286,6 @@ func (ipv4 *IPv4) HandleTx(skb *netstack.SkBuff) {
 		DestinationIP:  skb.GetDstIP().To4(),
 	}
 
-	// TODO: Calculate the checksum for the L4 header
-	skb.GetL4Header()
-
 	// Calculate the checksum for the IPv4 header
 	ipv4Header.HeaderChecksum = netstack.Checksum(ipv4Header.Marshal())
 
@@ -298,4 +299,6 @@ func (ipv4 *IPv4) HandleTx(skb *netstack.SkBuff) {
 
 	// Send the skb to the next layer
 	ipv4.TxDown(skb)
+
+	ipv4.Log.Printf("IPv4 packet sent: %+v", skb)
 }

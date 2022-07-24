@@ -1,7 +1,5 @@
 package netstack
 
-import "log"
-
 /*
 	Layer represents a layer in the network stack (e.g. link layer, network layer, transport layer)
 	A layer consists of a set of protocols.
@@ -33,6 +31,7 @@ func (layer *ILayer) GetProtocol(protocolType ProtocolType) (Protocol, error) {
 	if !ok {
 		return nil, ErrProtocolNotFound
 	}
+
 	return protocol, nil
 }
 
@@ -40,6 +39,7 @@ func (layer *ILayer) AddProtocol(protocol Protocol) {
 	if layer.protocols == nil {
 		layer.protocols = make(map[ProtocolType]Protocol)
 	}
+
 	layer.protocols[protocol.GetType()] = protocol
 }
 
@@ -78,13 +78,11 @@ func RxDispatch(layer Layer) {
 		// Dispatch skb to appropriate protocol
 		protocol, err := layer.GetProtocol(skb.GetType())
 		if err != nil {
-			log.Printf("Error getting protocol: %v", err)
 			continue
 		}
 
 		// Send skb to protocol
 		protocol.RxChan() <- skb
-
 	}
 }
 
@@ -96,7 +94,6 @@ func TxDispatch(layer Layer) {
 		// Dispatch skb to appropriate protocol
 		protocol, err := layer.GetProtocol(skb.GetType())
 		if err != nil {
-			log.Printf("Error getting protocol: %v", err)
 			continue
 		}
 

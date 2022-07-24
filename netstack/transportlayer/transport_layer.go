@@ -2,52 +2,48 @@ package transportlayer
 
 import (
 	"errors"
-	logging "log"
-	"os"
 
 	"github.com/mattcarp12/matnet/netstack"
 	"github.com/mattcarp12/matnet/netstack/networklayer"
 )
 
-var log = logging.New(os.Stdout, "[Transport Layer] ", logging.Ldate|logging.Lmicroseconds|logging.Lshortfile)
-
 type TransportLayer struct {
 	netstack.ILayer
 }
 
-func Init(network_layer *networklayer.NetworkLayer) *TransportLayer {
-	transport_layer := &TransportLayer{}
-	transport_layer.SkBuffReaderWriter = netstack.NewSkBuffChannels()
+func Init(networkLayer *networklayer.NetworkLayer) *TransportLayer {
+	transportLayer := &TransportLayer{}
+	transportLayer.SkBuffReaderWriter = netstack.NewSkBuffChannels()
 
 	// Create Transport Layer protocols
 	tcp := NewTCP()
 	udp := NewUDP()
 
 	// Add Transport Layer protocols to Transport Layer
-	transport_layer.AddProtocol(tcp)
-	transport_layer.AddProtocol(udp)
+	transportLayer.AddProtocol(tcp)
+	transportLayer.AddProtocol(udp)
 
 	// Set Transport Layer as the Layer for the protocols
-	tcp.SetLayer(transport_layer)
-	udp.SetLayer(transport_layer)
+	tcp.SetLayer(transportLayer)
+	udp.SetLayer(transportLayer)
 
 	// Set Transport Layer as the next layer for Network Layer
-	network_layer.SetNextLayer(transport_layer)
+	networkLayer.SetNextLayer(transportLayer)
 
 	// Set Network Layer as previous layer for Transport Layer
-	transport_layer.SetPrevLayer(network_layer)
+	transportLayer.SetPrevLayer(networkLayer)
 
 	// Start protocol goroutines
 	netstack.StartProtocol(tcp)
 	netstack.StartProtocol(udp)
 
 	// Start transport layer goroutines
-	netstack.StartLayer(transport_layer)
+	netstack.StartLayer(transportLayer)
 
-	return transport_layer
+	return transportLayer
 }
 
-func set_skb_type(skb *netstack.SkBuff) error {
+func setSkbType(skb *netstack.SkBuff) error {
 	// Check the address type of the destination address
 	// If it's IPv4, set the skb type to IPv4
 	// If it's IPv6, set the skb type to IPv6
@@ -68,6 +64,6 @@ func set_skb_type(skb *netstack.SkBuff) error {
 	return nil
 }
 
-func ConnectionID(src netstack.SockAddr, dst netstack.SockAddr) string {
-	return src.String() + "-" + dst.String()
+func ConnectionID(localAddr netstack.SockAddr, remoteAddr netstack.SockAddr) string {
+	return localAddr.String() + "-" + remoteAddr.String()
 }

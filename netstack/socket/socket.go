@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/mattcarp12/matnet/netstack"
@@ -59,6 +60,7 @@ func (req SockSyscallRequest) MakeResponse() SockSyscallResponse {
 	var resp SockSyscallResponse
 	resp.ConnID = req.ConnID
 	resp.SockID = req.SockID
+
 	return resp
 }
 
@@ -68,11 +70,13 @@ func (req *SockSyscallRequest) Read(reader *bufio.Reader) error {
 	if err != nil {
 		return err
 	}
+
 	// unmarshal data
 	err = json.Unmarshal(buf, req)
 	if err != nil {
 		return err
 	}
+
 	return nil
 }
 
@@ -80,14 +84,16 @@ func (resp SockSyscallResponse) Bytes() []byte {
 	if resp.Err != nil {
 		resp.ErrMsg = resp.Err.Error()
 	}
+
 	buf, _ := json.Marshal(resp)
+
 	return buf
 }
 
-/****************************************************************************
-	Socket -
-	Represents an individual socket in the netstack.
-****************************************************************************/
+// ============================================================================
+// Socket -
+// Represents an individual socket in the netstack.
+// ============================================================================
 type Socket interface {
 	Bind(addr SockAddr) error
 	Listen() error
@@ -107,13 +113,14 @@ type SockID string
 
 var ErrInvalidSocketID = errors.New("invalid socket ID")
 
-func NewSockID(sock_type SocketType) SockID {
-	return SockID(uuid.New().String() + fmt.Sprintf("-%d", sock_type))
+func NewSockID(sockType SocketType) SockID {
+	return SockID(uuid.New().String() + fmt.Sprintf("-%d", sockType))
 }
 
 func (sid SockID) GetSocketType() SocketType {
-	sock_type, _ := strconv.Atoi(string(sid[len(sid)-1]))
-	return SocketType(sock_type)
+	sockType, _ := strconv.Atoi(string(sid[len(sid)-1]))
+
+	return SocketType(sockType)
 }
 
 type SocketType uint
@@ -125,7 +132,38 @@ const (
 	SocketTypeRaw
 )
 
-var ErrInvalidSocketType = errors.New("invalid socket type")
+var (
+	ErrInvalidSocketType = errors.New("invalid socket type")
+	ErrInvalidSocketAddr = errors.New("invalid socket address")
+)
+
+func ParseSockAddr(addr string) (SockAddr, error) {
+	sockAddr := SockAddr{}
+
+	// split the string on the colon
+	parts := strings.Split(addr, ":")
+	if len(parts) != 2 {
+		return sockAddr, ErrInvalidSocketAddr
+	}
+
+	// parse the port
+	port, err := strconv.ParseUint(parts[1], 10, 16)
+	if err != nil {
+		return sockAddr, fmt.Errorf("%w: %s", ErrInvalidSocketAddr, err)
+	}
+
+	// parse the IP address
+	ipAddr := net.ParseIP(parts[0])
+	if ipAddr == nil {
+		return sockAddr, fmt.Errorf("%w: %s", ErrInvalidSocketAddr, err)
+	}
+
+	// create the sockaddr
+	sockAddr.IP = ipAddr
+	sockAddr.Port = uint16(port)
+
+	return sockAddr, nil
+}
 
 /****************************************************************************
 	SocketMeta - helper struct for Socket implementations
@@ -139,8 +177,16 @@ type SocketMetaOps interface {
 	SetProtocol(protocol netstack.Protocol)
 	GetSrcAddr() SockAddr
 	SetSrcAddr(addr SockAddr)
+	GetSrcIP() net.IP
+	SetSrcIP(ip net.IP)
+	GetSrcPort() uint16
+	SetSrcPort(port uint16)
 	GetDestAddr() SockAddr
 	SetDestAddr(addr SockAddr)
+	GetDestIP() net.IP
+	SetDestIP(ip net.IP)
+	GetDestPort() uint16
+	SetDestPort(port uint16)
 	GetID() SockID
 	SetID(id SockID)
 	GetRoute() *netstack.Route
@@ -177,11 +223,11 @@ type SocketMeta struct {
 	RxChan chan *netstack.SkBuff
 }
 
-const socket_rx_chan_size = 100
+const socketRxChanSize = 100
 
 func NewSocketMeta() *SocketMeta {
 	return &SocketMeta{
-		RxChan: make(chan *netstack.SkBuff, socket_rx_chan_size),
+		RxChan: make(chan *netstack.SkBuff, socketRxChanSize),
 	}
 }
 
@@ -215,12 +261,44 @@ func (meta *SocketMeta) SetSrcAddr(addr SockAddr) {
 	meta.SrcAddr = addr
 }
 
+func (meta *SocketMeta) GetSrcIP() net.IP {
+	return meta.SrcAddr.IP
+}
+
+func (meta *SocketMeta) SetSrcIP(ip net.IP) {
+	meta.SrcAddr.IP = ip
+}
+
+func (meta *SocketMeta) GetSrcPort() uint16 {
+	return meta.SrcAddr.Port
+}
+
+func (meta *SocketMeta) SetSrcPort(port uint16) {
+	meta.SrcAddr.Port = port
+}
+
 func (meta *SocketMeta) GetDestAddr() SockAddr {
 	return meta.DestAddr
 }
 
 func (meta *SocketMeta) SetDestAddr(addr SockAddr) {
 	meta.DestAddr = addr
+}
+
+func (meta *SocketMeta) GetDestIP() net.IP {
+	return meta.DestAddr.IP
+}
+
+func (meta *SocketMeta) SetDestIP(ip net.IP) {
+	meta.DestAddr.IP = ip
+}
+
+func (meta *SocketMeta) GetDestPort() uint16 {
+	return meta.DestAddr.Port
+}
+
+func (meta *SocketMeta) SetDestPort(port uint16) {
+	meta.DestAddr.Port = port
 }
 
 func (meta *SocketMeta) GetID() SockID {
@@ -237,6 +315,7 @@ func (meta *SocketMeta) GetRoute() *netstack.Route {
 
 func (meta *SocketMeta) SetRoute(route *netstack.Route) {
 	meta.Route = route
+	meta.NetworkInterface = route.Iface
 }
 
 func (meta *SocketMeta) GetNetworkInterface() netstack.NetworkInterface {

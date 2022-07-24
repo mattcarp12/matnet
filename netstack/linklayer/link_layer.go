@@ -19,31 +19,44 @@ func NewLinkLayer(tap *TAPDevice, loop *LoopbackDevice, eth *EthernetProtocol) *
 	ll.AddProtocol(eth)
 	ll.tap = tap
 	ll.loop = loop
+
 	return ll
 }
 
-func (ll *LinkLayer) SetNeighborProtocol(neigh NeighborProtocol) {
+func (ll *LinkLayer) SetNeighborSubsystem(neigh *NeighborSubsystem) {
 	eth, err := ll.GetProtocol(netstack.ProtocolTypeEthernet)
 	if err != nil {
 		panic(err)
 	}
-	eth.(*EthernetProtocol).SetNeighborProtocol(neigh)
+
+	eth.(*EthernetProtocol).SetNeighborSubsystem(neigh)
 }
 
-const DefaultIPAddr = "10.88.45.69"
-const DefaultGateway = "10.88.45.1"
+func (ll *LinkLayer) AddNeighborProtocol(prot NeighborProtocol) {
+	eth, err := ll.GetProtocol(netstack.ProtocolTypeEthernet)
+	if err != nil {
+		panic(err)
+	}
+
+	eth.(*EthernetProtocol).AddNeighborProtocol(prot)
+}
 
 func Init() (*LinkLayer, netstack.RoutingTable) {
 	// Create network devices
+	tapMAC, err := net.ParseMAC(netstack.DefaultMACAddr)
+	if err != nil {
+		panic(err)
+	}
+
 	tap := NewTap(
 		tuntap.TapInit("tap0", tuntap.DefaultIPv4Addr),
 		"tap0",
-		net.HardwareAddr{0xde, 0xad, 0xbe, 0xef, 0xde, 0xad},
+		tapMAC,
 		[]netstack.IfAddr{
 			{
-				IP:      net.ParseIP(DefaultIPAddr),
+				IP:      net.ParseIP(netstack.DefaultIPAddr),
 				Netmask: net.IPv4Mask(255, 255, 255, 0),
-				Gateway: net.ParseIP(DefaultGateway),
+				Gateway: net.ParseIP(netstack.DefaultGateway),
 			},
 		},
 	)
@@ -54,21 +67,17 @@ func Init() (*LinkLayer, netstack.RoutingTable) {
 	eth := NewEthernet()
 
 	// Create Link Layer
-	link_layer := NewLinkLayer(tap, loop, eth)
+	linkLayer := NewLinkLayer(tap, loop, eth)
 
-	arp := NewARP()
-	arp.SetLayer(link_layer)
-
-	neigh := NewNeighborSubsystem(arp)
-
-	link_layer.SetNeighborProtocol(neigh)
+	neigh := NewNeighborSubsystem()
+	linkLayer.SetNeighborSubsystem(neigh)
 
 	// Give Devices pointers to Link Layer
-	tap.LinkLayer = link_layer
-	loop.LinkLayer = link_layer
+	tap.LinkLayer = linkLayer
+	loop.LinkLayer = linkLayer
 
 	// Give Ethernet protocol pointer to Link Layer
-	eth.SetLayer(link_layer)
+	eth.SetLayer(linkLayer)
 
 	// Start device goroutines
 	netstack.StartInterface(tap)
@@ -78,20 +87,20 @@ func Init() (*LinkLayer, netstack.RoutingTable) {
 	netstack.StartProtocol(eth)
 
 	// Start link layer goroutines
-	netstack.StartLayer(link_layer)
+	netstack.StartLayer(linkLayer)
 
 	// Make routing table
-	rt := netstack.NewRoutingTable()
-	rt.AddConnectedRoutes(tap)
-	rt.SetDefaultRoute(
+	routingTable := netstack.NewRoutingTable()
+	routingTable.AddConnectedRoutes(tap)
+	routingTable.SetDefaultRoute(
 		net.IPNet{
-			IP:   net.ParseIP(DefaultIPAddr),
+			IP:   net.ParseIP(netstack.DefaultIPAddr),
 			Mask: net.IPv4Mask(255, 255, 255, 0),
 		},
-		net.ParseIP(DefaultGateway),
+		net.ParseIP(netstack.DefaultGateway),
 		tap,
 	)
-	rt.AddConnectedRoutes(loop)
+	routingTable.AddConnectedRoutes(loop)
 
-	return link_layer, rt
+	return linkLayer, routingTable
 }

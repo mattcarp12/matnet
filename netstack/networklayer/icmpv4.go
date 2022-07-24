@@ -86,7 +86,6 @@ func (icmp *ICMPv4) HandleRx(skb *netstack.SkBuff) {
 
 	// Unmarshal the ICMP header
 	if err := icmpHeader.Unmarshal(skb.Data); err != nil {
-		log.Printf("Error unmarshalling ICMP header: %v", err)
 		return
 	}
 
@@ -129,9 +128,9 @@ func (icmp *ICMPv4) EchoReply(skb *netstack.SkBuff, requestHeader *ICMPv4Header)
 	// Setup the reply skb
 	txIface, err := skb.GetRxIface()
 	if err != nil {
-		log.Printf("Error getting rx interface: %v", err)
 		return
 	}
+
 	replySkb.SetTxIface(txIface)
 	replySkb.SetType(netstack.ProtocolTypeICMPv4)
 	replySkb.SetSrcIP(skb.GetDstIP())

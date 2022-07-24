@@ -9,24 +9,24 @@ import (
 	"github.com/google/uuid"
 )
 
-var ipc_log = log.New(os.Stdout, "[IPC] ", log.Ldate|log.Lmicroseconds|log.Lshortfile)
+var ipcLog = log.New(os.Stdout, "[IPC] ", log.Ldate|log.Lmicroseconds|log.Lshortfile)
 
 type IPC struct {
-	socket_layer    *SocketLayer
+	SocketLayer     *SocketLayer
 	server          *IPCServer
-	conn_map        map[string]*ipc_conn
+	ConnMap         map[string]*ipcConn
 	SyscallRespChan chan SockSyscallResponse
 }
 
-type ipc_conn struct {
-	id           string
-	conn         net.Conn
-	socket_layer *SocketLayer
-	rx_chan      chan SockSyscallResponse
+type ipcConn struct {
+	id          string
+	conn        net.Conn
+	socketLayer *SocketLayer
+	rxChan      chan SockSyscallResponse
 }
 
-func (ic *ipc_conn) get_response() SockSyscallResponse {
-	return <-ic.rx_chan
+func (ic *ipcConn) getResponse() SockSyscallResponse {
+	return <-ic.rxChan
 }
 
 // IPCServer ...
@@ -34,42 +34,45 @@ type IPCServer struct {
 	done chan bool
 }
 
-const ipc_addr = "/tmp/gonet.sock"
+const ipcAddr = "/tmp/gonet.sock"
 
 // serve ...
 func (ipc *IPC) serve() {
-	ipc_log.Printf("Starting server on %s", ipc_addr)
+	ipcLog.Printf("Starting server on %s", ipcAddr)
 
-	listener, err := net.Listen("unix", ipc_addr)
+	listener, err := net.Listen("unix", ipcAddr)
 	if err != nil {
-		ipc_log.Fatal(err)
+		ipcLog.Fatal(err)
 	}
 
 	// change file permission so non-root users can access
-	os.Chmod(ipc_addr, 0o777)
+	sockPermission := 0o777
+	if err := os.Chmod(ipcAddr, os.FileMode(sockPermission)); err != nil {
+		ipcLog.Fatal(err)
+	}
 
 	defer listener.Close()
 
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			ipc_log.Printf("Error accepting connection: %s", err)
+			ipcLog.Printf("Error accepting connection: %s", err)
 			continue
 		}
 
 		// Generate unique connection ID
-		conn_id := uuid.New().String()
+		connID := uuid.New().String()
 
 		// Create new connection
-		iconn := &ipc_conn{
-			id:           conn_id,
-			conn:         conn,
-			socket_layer: ipc.socket_layer,
-			rx_chan:      make(chan SockSyscallResponse),
+		iconn := &ipcConn{
+			id:          connID,
+			conn:        conn,
+			socketLayer: ipc.SocketLayer,
+			rxChan:      make(chan SockSyscallResponse),
 		}
 
 		// Add to connection map
-		ipc.conn_map[iconn.id] = iconn
+		ipc.ConnMap[iconn.id] = iconn
 		// TODO : How does this get cleaned up?
 
 		// Start goroutine to handle connection
@@ -79,20 +82,20 @@ func (ipc *IPC) serve() {
 
 // SyscallResponseLoop ...
 // The IPC server received responses from the socket layer and dispatches
-// them to the appropriate connection
+// them to the appropriate connection.
 func (ipc *IPC) SyscallResponseLoop() {
 	for {
 		// Get message from response channel and dispatch to connection
 		// The response channel is actually the socket layer's syscall response channel
 		msg := <-ipc.SyscallRespChan
-		ipc_log.Printf("Received Syscall Response: %+v", msg)
+		ipcLog.Printf("Received Syscall Response: %+v", msg)
 
 		// get connection from map
-		if conn, ok := ipc.conn_map[msg.ConnID]; ok {
+		if conn, ok := ipc.ConnMap[msg.ConnID]; ok {
 			// send message to connection
-			conn.rx_chan <- msg
+			conn.rxChan <- msg
 		} else {
-			ipc_log.Printf("Connection not found: %s", msg.ConnID)
+			ipcLog.Printf("Connection not found: %s", msg.ConnID)
 		}
 	}
 }
@@ -105,36 +108,41 @@ func (server *IPCServer) Wait() {
 // this is the goroutine that will handle the connection
 // to the client process. It listens for Syscall Requests
 // from the client and dispatches them to the socket layer.
-func (iconn *ipc_conn) handle_connection() {
+func (iconn *ipcConn) handle_connection() {
 	reader := bufio.NewReader(iconn.conn)
+
 	for {
 		// Read request
 		var req SockSyscallRequest
+
 		err := req.Read(reader)
 		if err != nil {
-			ipc_log.Printf("Error reading request: %s", err)
+			ipcLog.Printf("Error reading request: %s", err)
 			iconn.close()
+
 			return
 		}
 
-		ipc_log.Printf("Received request: %+v", req)
+		ipcLog.Printf("Received request: %+v", req)
 
 		// Set the connection ID
 		req.ConnID = iconn.id
 
 		// Send request to socket layer
-		iconn.socket_layer.SyscallReqChan <- req
+		iconn.socketLayer.SyscallReqChan <- req
 
 		// Wait for response
-		resp := iconn.get_response()
+		resp := iconn.getResponse()
 
 		// Write response
 		rawResp := append(resp.Bytes(), '\n')
-		iconn.conn.Write(rawResp)
+		if _, err = iconn.conn.Write(rawResp); err != nil {
+			ipcLog.Printf("Error writing response: %s", err)
+		}
 	}
 }
 
-func (iconn *ipc_conn) close() {
+func (iconn *ipcConn) close() {
 	// make SockSyscallRequest for to close the socket
 	req := SockSyscallRequest{
 		ConnID:      iconn.id,
@@ -142,32 +150,34 @@ func (iconn *ipc_conn) close() {
 	}
 
 	// send request to socket layer
-	iconn.socket_layer.SyscallReqChan <- req
+	iconn.socketLayer.SyscallReqChan <- req
 
 	// wait for response
-	resp := iconn.get_response()
-	ipc_log.Printf("Received response: %+v", resp)
+	resp := iconn.getResponse()
+	ipcLog.Printf("Received response: %+v", resp)
 
 	// close connection
 	iconn.conn.Close()
 }
 
-func IpcInit(sl *SocketLayer) *IPC {
-	os.Remove(ipc_addr)
+func IpcInit(sockerLayer *SocketLayer) *IPC {
+	os.Remove(ipcAddr)
+
 	ipc := &IPC{
-		sl,
+		sockerLayer,
 		&IPCServer{
 			make(chan bool),
 		},
-		make(map[string]*ipc_conn),
+		make(map[string]*ipcConn),
 		make(chan SockSyscallResponse),
 	}
 
 	// Set SocketLayer syscall response channel so it can
 	// send messages to the IPC server
-	sl.SyscallRespChan = ipc.SyscallRespChan
+	sockerLayer.SyscallRespChan = ipc.SyscallRespChan
 
 	go ipc.serve()
 	go ipc.SyscallResponseLoop()
+
 	return ipc
 }
