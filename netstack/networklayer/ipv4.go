@@ -12,9 +12,9 @@ import (
 
 var ip4_log = log.New(os.Stdout, "[IPv4] ", log.Ldate|log.Lmicroseconds|log.Lshortfile)
 
-//=============================================================================
+// =============================================================================
 // IPv4 Header
-//=============================================================================
+// =============================================================================
 
 type IPv4Header struct {
 	Version        uint8
@@ -222,21 +222,22 @@ func (ipv4 *IPv4) HandleRx(skb *netstack.SkBuff) {
 		case ErrTTLZero:
 			ipv4.Icmp.SendTimeExceeded(skb, 0)
 		case ErrInvalidCheckSum:
-			ip4_log.Println("invalid checksum")
+			ipv4.Log.Println("invalid checksum")
 		}
+
 		return
 	}
 
 	rxIface, err := skb.GetRxIface()
 	if err != nil {
-		ip4_log.Println("failed to get rx iface")
+		ipv4.Log.Println("failed to get rx iface")
 		return
 	}
 
 	// Check the Destination IP matches the IP of the interface,
 	// only for global unicast addresses
 	if ipv4Header.DestinationIP.IsGlobalUnicast() && !rxIface.HasIPAddr(ipv4Header.DestinationIP) {
-		ip4_log.Println("Destination IP does not match the IP of the interface")
+		ipv4.Log.Println("Destination IP does not match the IP of the interface")
 		return
 	}
 
@@ -299,6 +300,4 @@ func (ipv4 *IPv4) HandleTx(skb *netstack.SkBuff) {
 
 	// Send the skb to the next layer
 	ipv4.TxDown(skb)
-
-	ipv4.Log.Printf("IPv4 packet sent: %+v", skb)
 }

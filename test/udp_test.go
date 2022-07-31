@@ -6,11 +6,15 @@ import (
 	"testing"
 
 	s "github.com/mattcarp12/matnet/api"
+	"github.com/mattcarp12/matnet/netstack"
+	"github.com/stretchr/testify/assert"
 )
 
 const UDPPort = 8845
 
-func startUDPServer() *net.UDPConn {
+func startUDPServer(t *testing.T) *net.UDPConn {
+	t.Helper()
+
 	// create a new socket
 	conn, err := net.ListenUDP("udp", &net.UDPAddr{
 		IP:   net.ParseIP(os.Getenv("LOCAL_IP")),
@@ -18,7 +22,7 @@ func startUDPServer() *net.UDPConn {
 		Zone: "",
 	})
 	if err != nil {
-		panic(err)
+		t.Fatalf("Error creating UDP socket: %v", err)
 	}
 
 	return conn
@@ -35,18 +39,28 @@ func readUDP(conn *net.UDPConn) string {
 	return string(buf[:n])
 }
 
+func makeUDPClient(t *testing.T) *net.UDPConn {
+	t.Helper()
+
+	// create a new client
+	conn, err := net.DialUDP("udp", nil, &net.UDPAddr{
+		IP:   net.ParseIP(netstack.DefaultIPAddr),
+		Port: UDPPort,
+		Zone: "",
+	})
+	assert.NoError(t, err)
+
+	return conn
+}
+
 func TestUDPWrite(t *testing.T) {
 	// Start Udp server
-	conn := startUDPServer()
+	conn := startUDPServer(t)
 	defer conn.Close()
 
 	// Create a new socket
 	sock, err := s.Socket(s.SOCK_DGRAM)
-	if err != nil {
-		panic(err)
-	}
-
-	t.Logf("Created socket: %v", sock)
+	assert.NoError(t, err)
 
 	// Make SockAddr to send to
 	sockAddr := s.SockAddr{
@@ -58,12 +72,38 @@ func TestUDPWrite(t *testing.T) {
 	data := "Hello World\n"
 
 	err = s.WriteTo(sock, []byte(data), 0, sockAddr)
-	if err != nil {
-		t.Errorf("Error writing to socket: %v", err)
-	}
+	assert.NoError(t, err)
 
 	// Check msg received by udp server
 	if resp := readUDP(conn); resp != data {
 		t.Errorf("Expected netcat output to be 'Hello World', got '%s'", resp)
 	}
+}
+
+func TestUDPRead(t *testing.T) {
+	client := makeUDPClient(t)
+	defer client.Close()
+
+	// Create a new socket
+	sock, err := s.Socket(s.SOCK_DGRAM)
+	assert.NoError(t, err)
+
+	// Bind the socket
+	err = s.Bind(sock, s.SockAddr{Port: UDPPort})
+	assert.NoError(t, err)
+
+	// Send data with client
+	data := "Hello World\n"
+
+	_, err = client.Write([]byte(data))
+	assert.NoError(t, err)
+
+	// Read data from socket
+	buf := make([]byte, 1024)
+	err = s.Read(sock, &buf)
+	assert.NoError(t, err)
+
+	t.Logf("Got data: %s", string(buf))
+
+	// Check msg received by udp client
 }

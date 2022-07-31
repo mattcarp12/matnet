@@ -2,6 +2,7 @@ package socket
 
 import (
 	"errors"
+	"fmt"
 	"net"
 
 	"github.com/mattcarp12/matnet/netstack/transportlayer"
@@ -37,7 +38,21 @@ func (s *TCPSocket) Accept() (net.Conn, error) {
 
 // Connect calls the OpenConnection function of the TCP protocol
 func (s *TCPSocket) Connect(_ SockAddr) error {
-	return s.Protocol.(*transportlayer.TCPProtocol).OpenConnection(s.SocketMeta.SrcAddr, s.SocketMeta.DestAddr, s.SocketMeta.GetNetworkInterface())
+	tcpProtocol, ok := s.Protocol.(*transportlayer.TCPProtocol)
+	if !ok {
+		return errors.New("TCP socket does not have a TCP protocol")
+	}
+
+	err := tcpProtocol.OpenConnection(
+		s.SocketMeta.SrcAddr,
+		s.SocketMeta.DestAddr,
+		s.SocketMeta.GetNetworkInterface(),
+	)
+	if err != nil {
+		return fmt.Errorf("TCPSocket Connect: error opening connection: %v", err)
+	}
+
+	return nil
 }
 
 // Close...

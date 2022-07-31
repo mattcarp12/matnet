@@ -6,10 +6,6 @@ import (
 	"github.com/mattcarp12/matnet/netstack"
 )
 
-/*
-	UDP Socket
-*/
-
 type UDPSocket struct {
 	SocketMeta
 }
@@ -52,8 +48,12 @@ func (s *UDPSocket) Close() error {
 
 // Read...
 func (s *UDPSocket) Read() ([]byte, error) {
-	// Get skb from RxChan
+	sockLog.Printf("UDP Read()")
+
 	skb := <-s.RxChan
+
+	sockLog.Printf("Read: %v\n", skb)
+
 	return skb.Data, nil
 }
 

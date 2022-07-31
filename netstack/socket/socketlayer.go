@@ -10,28 +10,27 @@ import (
 
 var sockLog = log.New(os.Stdout, "[Socket] ", log.Ldate|log.Lmicroseconds|log.Lshortfile)
 
-/*
-	SocketLayer is the interface between the IPC layer and the netstack
-*/
+// =============================================================================
+// SocketLayer
+// The interface between the IPC layer and the netstack
+// =============================================================================
 
 type SocketLayer struct {
-	netstack.ILayer
+	*netstack.Layer
 	SyscallReqChan  chan SockSyscallRequest
 	SyscallRespChan chan SockSyscallResponse
 	RoutingTable    netstack.RoutingTable
-	TransportLayer  netstack.Layer
 }
 
-func (s *SocketLayer) err(err error, resp SockSyscallResponse) {
+func (socketLayer *SocketLayer) err(err error, resp SockSyscallResponse) {
 	resp.Err = err
-	s.SyscallRespChan <- resp
+	socketLayer.SyscallRespChan <- resp
 }
 
 // These calls don't block, they send their responses to the socket layer's response channel,
 // which is then handled by the IPC layer.
-func (socketLayer *SocketLayer) handle() {
+func (socketLayer *SocketLayer) SyscallRxLoop() {
 	for {
-		// read from tx_chan
 		syscall := <-socketLayer.SyscallReqChan
 
 		// handle syscall
@@ -69,6 +68,7 @@ func (socketLayer *SocketLayer) socket(syscall SockSyscallRequest) {
 
 	// Create socket
 	var sock Socket
+
 	switch syscall.SockType {
 	case SocketTypeStream:
 		sock = NewTCPSocket()
@@ -76,9 +76,8 @@ func (socketLayer *SocketLayer) socket(syscall SockSyscallRequest) {
 		sock = NewUDPSocket()
 	case SocketTypeRaw:
 		sock = NewRawSocket()
-	default:
+	case SocketTypeInvalid:
 		socketLayer.err(ErrInvalidSocketType, resp)
-
 		return
 	}
 
@@ -86,14 +85,12 @@ func (socketLayer *SocketLayer) socket(syscall SockSyscallRequest) {
 	protocolType, err := sockTypeToProtocol(syscall.SockType)
 	if err != nil {
 		socketLayer.err(err, resp)
-
 		return
 	}
 
-	l4Protocol, err := socketLayer.TransportLayer.GetProtocol(protocolType)
+	l4Protocol, err := socketLayer.GetPrevLayer().GetProtocol(protocolType)
 	if err != nil {
 		socketLayer.err(err, resp)
-
 		return
 	}
 
@@ -113,13 +110,18 @@ func (socketLayer *SocketLayer) socket(syscall SockSyscallRequest) {
 	}
 
 	// Cast to socket manager
-	sm := socketProtocol.(*SocketProtocol)
+	sm := socketProtocol.(*SocketManager)
 
 	// Assign the socket a source port
-	err = sm.assignPort(sock)
+	port, err := sm.getUnusedPort()
 	if err != nil {
 		socketLayer.err(err, resp)
+		return
+	}
 
+	err = sm.assignPort(port, sock)
+	if err != nil {
+		socketLayer.err(err, resp)
 		return
 	}
 
@@ -132,17 +134,45 @@ func (socketLayer *SocketLayer) socket(syscall SockSyscallRequest) {
 	socketLayer.SyscallRespChan <- resp
 }
 
-func (socketLayer *SocketLayer) bind(syscall SockSyscallRequest) {}
+func (socketLayer *SocketLayer) bind(syscall SockSyscallRequest) {
+	resp := syscall.MakeResponse()
+
+	// Get socket from map
+	sock, err := socketLayer.getSocket(syscall.SockType, syscall.SockID)
+	if err != nil {
+		socketLayer.err(ErrInvalidSocketID, resp)
+		return
+	}
+
+	// Get the socket manager for this protocol
+	socketProtocol, err := socketLayer.GetProtocol(sock.GetProtocol().GetType())
+	if err != nil {
+		socketLayer.err(err, resp)
+		return
+	}
+
+	// Cast to socket manager
+	sm := socketProtocol.(*SocketManager)
+	err = sm.bind(sock, syscall.Addr)
+
+	// Handle the response
+	resp.Err = err
+
+	// Send response back to socket layer
+	socketLayer.SyscallRespChan <- resp
+}
 
 func (socketLayer *SocketLayer) listen(syscall SockSyscallRequest) {}
 
 func (socketLayer *SocketLayer) accept(syscall SockSyscallRequest) {}
 
 func (socketLayer *SocketLayer) connect(syscall SockSyscallRequest) {
+	resp := syscall.MakeResponse()
+
 	// Get socket from map
 	sock, err := socketLayer.getSocket(syscall.SockType, syscall.SockID)
 	if err != nil {
-		socketLayer.err(ErrInvalidSocketID, syscall.MakeResponse())
+		socketLayer.err(ErrInvalidSocketID, resp)
 
 		return
 	}
@@ -162,7 +192,6 @@ func (socketLayer *SocketLayer) connect(syscall SockSyscallRequest) {
 	err = sock.Connect(destAddr)
 
 	// Handle the response
-	resp := syscall.MakeResponse()
 	resp.Err = err
 
 	// Send response back to socket layer
@@ -273,7 +302,7 @@ func (socketLayer *SocketLayer) getSocket(sockType SocketType, sockID SockID) (S
 	}
 
 	// Cast to socket manager
-	sm := protocol.(*SocketProtocol)
+	sm := protocol.(*SocketManager)
 
 	// Get socket from map
 	sock, ok := sm.socketMap[sockID]
@@ -284,66 +313,61 @@ func (socketLayer *SocketLayer) getSocket(sockType SocketType, sockID SockID) (S
 	return sock, nil
 }
 
-func Init(transportLayer netstack.Layer, routingTable netstack.RoutingTable) *SocketLayer {
+func Init(transportLayer *netstack.Layer, routingTable netstack.RoutingTable) *SocketLayer {
+	// Create socket layer "protocols", i.e. the socket managers
+	udpSocketProtocol := NewSocketManager(netstack.ProtocolTypeUDP)
+	tcpSocketProtocol := NewSocketManager(netstack.ProtocolTypeTCP)
+	rawSocketProtocol := NewSocketManager(netstack.ProtocolTypeRaw)
+
 	socketLayer := &SocketLayer{
-		// socket_map: make(map[netstack.SockID]netstack.Socket),
+		Layer:           netstack.NewLayer(udpSocketProtocol, tcpSocketProtocol, rawSocketProtocol),
 		SyscallReqChan:  make(chan SockSyscallRequest),
 		SyscallRespChan: make(chan SockSyscallResponse),
+		RoutingTable:    routingTable,
 	}
-	socketLayer.SkBuffReaderWriter = netstack.NewSkBuffChannels()
-	socketLayer.RoutingTable = routingTable
-	socketLayer.TransportLayer = transportLayer
 
-	// Create socket layer "protocols", i.e. the socket managers
-	udpSocketManager := NewSocketManager(netstack.ProtocolTypeUDP)
-	tcpSocketManager := NewSocketManager(netstack.ProtocolTypeTCP)
-	rawSocketManager := NewSocketManager(netstack.ProtocolTypeRaw)
-
-	// Add the socket managers to the socket layer
-	socketLayer.AddProtocol(udpSocketManager)
-	socketLayer.AddProtocol(tcpSocketManager)
-	socketLayer.AddProtocol(rawSocketManager)
-
-	// Set the transport layer's next layer to the socket layer
-	// so that the transport layer can send packets to the socket layer
-	transportLayer.SetNextLayer(socketLayer)
+	socketLayer.SetPrevLayer(transportLayer)
+	transportLayer.SetNextLayer(socketLayer.Layer)
 
 	// Start the socket managers
-	netstack.StartProtocol(udpSocketManager)
-	netstack.StartProtocol(tcpSocketManager)
-	netstack.StartProtocol(rawSocketManager)
+	netstack.StartProtocol(udpSocketProtocol)
+	netstack.StartProtocol(tcpSocketProtocol)
+	netstack.StartProtocol(rawSocketProtocol)
 
 	// Start the socket layer
-	netstack.StartLayer(socketLayer)
+	socketLayer.StartLayer()
 
-	go socketLayer.handle()
+	go socketLayer.SyscallRxLoop()
 
 	return socketLayer
 }
 
 // ============================================================================
-// Socket Protocol
+// Socket Manager
 // Data structure to manage sockets for a transport protocol
-// Each L4 protocol has its own socket protocol
+// Each L4 protocol has its own socket manager
 // ============================================================================
 
-type SocketProtocol struct {
+type SocketManager struct {
 	netstack.IProtocol
-	portManager *PortManager
 	socketMap   map[SockID]Socket
 	portMap     map[uint16]SockID
+	currentPort uint16 // next unassigned port
 }
 
-func NewSocketManager(protoType netstack.ProtocolType) *SocketProtocol {
-	return &SocketProtocol{
+const startingPort = 40000
+
+func NewSocketManager(protoType netstack.ProtocolType) *SocketManager {
+	return &SocketManager{
 		IProtocol:   netstack.NewIProtocol(protoType),
-		portManager: NewPortManager(),
 		socketMap:   make(map[SockID]Socket),
 		portMap:     make(map[uint16]SockID),
+		currentPort: startingPort,
 	}
 }
 
-func (sm *SocketProtocol) HandleRx(skb *netstack.SkBuff) {
+func (sm *SocketManager) HandleRx(skb *netstack.SkBuff) {
+	sockLog.Printf("SocketProtocol: HandleRx: skb: %v", skb)
 	// Get the port number from the skb
 	port := skb.GetDstPort()
 
@@ -353,57 +377,49 @@ func (sm *SocketProtocol) HandleRx(skb *netstack.SkBuff) {
 
 	// If the socket is nil, then we don't have a socket for this port
 	if sock == nil {
-		// sockLog.Printf("No socket for port %d\n", port)
+		sockLog.Printf("No socket for port %d\n", port)
 		return
 	}
+
+	sockLog.Printf("SocketProtocol: HandleRx: skb: %v", skb)
 
 	// Pass the skb to the socket
 	sock.GetRxChan() <- skb
 }
 
-// This is not used for the socket layer
-func (sm *SocketProtocol) HandleTx(skb *netstack.SkBuff) {}
+// HandleTx is not used for the socket layer
+func (sm *SocketManager) HandleTx(skb *netstack.SkBuff) {}
 
-func (sm *SocketProtocol) assignPort(sock Socket) error {
-	// Get port number from port manager
-	port, err := sm.portManager.GetUnusedPort()
-	if err != nil {
-		return err
+var ErrSocketAlreadyBound = errors.New("Socket already bound")
+
+func (sm *SocketManager) bind(sock Socket, addr netstack.SockAddr) error {
+	// Check if the socket is already bound
+	currPort := sock.GetSrcPort()
+
+	// lookup in the port map
+	sockID, ok := sm.portMap[currPort]
+	if ok {
+		if sockID != sock.GetID() {
+			return ErrSocketAlreadyBound
+		} else {
+			delete(sm.portMap, currPort)
+		}
 	}
 
-	sock.SetSrcPort(port)
-
-	// Add socket to map
-	sm.portMap[port] = sock.GetID()
+	// We know the socket is not in the port map, so we can add it
+	sm.portMap[addr.Port] = sock.GetID()
+	sock.SetSrcPort(addr.Port)
 
 	return nil
 }
 
-// ============================================================================
-// Port Manager
-// Data structure to manage ports for a transport protocol
-// ============================================================================
-
-type PortManager struct {
-	currentPort   uint16
-	assignedPorts map[uint16]bool
-}
-
-const startingPort = 40000
-
 var ErrNoPortsAvailable = errors.New("no ports available")
 
-func NewPortManager() *PortManager {
-	return &PortManager{currentPort: startingPort, assignedPorts: make(map[uint16]bool)}
-}
-
-func (pm *PortManager) GetUnusedPort() (uint16, error) {
+func (sm *SocketManager) getUnusedPort() (uint16, error) {
 	// TODO: Make this more efficient. Maybe use a priority queue?
-	for i := pm.currentPort; i < 65535; i++ {
-		if !pm.assignedPorts[i] {
-			pm.assignedPorts[i] = true
-			pm.currentPort = i
-
+	for i := sm.currentPort; i < 65535; i++ {
+		if _, ok := sm.portMap[i]; !ok {
+			sm.currentPort = i
 			return i, nil
 		}
 	}
@@ -411,6 +427,14 @@ func (pm *PortManager) GetUnusedPort() (uint16, error) {
 	return 0, ErrNoPortsAvailable
 }
 
-func (pm *PortManager) ReleasePort(port uint16) {
-	delete(pm.assignedPorts, port)
+var ErrPortAlreadyAssigned = errors.New("port already assigned")
+
+func (sm *SocketManager) assignPort(port uint16, sock Socket) error {
+	if _, ok := sm.portMap[port]; ok {
+		return ErrPortAlreadyAssigned
+	}
+
+	sm.portMap[port] = sock.GetID()
+
+	return nil
 }

@@ -8,17 +8,9 @@ import (
 	"github.com/mattcarp12/matnet/netstack"
 )
 
-type ICMPv4 struct {
-	ip *IPv4
-}
-
-func NewICMPv4(ip *IPv4) *ICMPv4 {
-	icmp := &ICMPv4{
-		ip: ip,
-	}
-
-	return icmp
-}
+// ===========================================================================
+// ICMPv4 Header
+// ===========================================================================
 
 type ICMPv4Header struct {
 	Type     uint8
@@ -80,7 +72,30 @@ func (icmp *ICMPv4Header) Marshal() []byte {
 	return b
 }
 
+func (icmpHeader ICMPv4Header) GetType() netstack.ProtocolType { return netstack.ProtocolTypeICMPv4 }
+func (icmpHeader ICMPv4Header) GetSrcPort() uint16             { return 0 }
+func (icmpHeader ICMPv4Header) GetDstPort() uint16             { return 0 }
+
+// ===========================================================================
+// ICMPv4 Protocol
+// ===========================================================================
+
+type ICMPv4 struct {
+	ip  *IPv4
+	Log *log.Logger
+}
+
+func NewICMPv4(ip *IPv4) *ICMPv4 {
+	icmp := &ICMPv4{
+		ip:  ip,
+		Log: netstack.NewLogger("ICMPv4"),
+	}
+
+	return icmp
+}
+
 func (icmp *ICMPv4) HandleRx(skb *netstack.SkBuff) {
+	icmp.Log.Printf("Handling ICMPv4 packet")
 	// Create a new ICMP header
 	icmpHeader := &ICMPv4Header{}
 
@@ -132,9 +147,10 @@ func (icmp *ICMPv4) EchoReply(skb *netstack.SkBuff, requestHeader *ICMPv4Header)
 	}
 
 	replySkb.SetTxIface(txIface)
-	replySkb.SetType(netstack.ProtocolTypeICMPv4)
+	replySkb.SetType(netstack.ProtocolTypeIPv4)
 	replySkb.SetSrcIP(skb.GetDstIP())
 	replySkb.SetDstIP(skb.GetSrcIP())
+	replySkb.SetL4Header(icmpHeader)
 
 	// Send the ICMP echo reply to IP
 	icmp.ip.TxChan() <- replySkb
@@ -144,8 +160,7 @@ func (icmp *ICMPv4) EchoReply(skb *netstack.SkBuff, requestHeader *ICMPv4Header)
 }
 
 // function to handle ICMP destination unreachable
-func (icmp *ICMPv4) HandleDestinationUnreachable(skb *netstack.SkBuff) {
-}
+func (icmp *ICMPv4) HandleDestinationUnreachable(skb *netstack.SkBuff) {}
 
 // function to handle ICMP redirect
 func (icmp *ICMPv4) HandleRedirect(skb *netstack.SkBuff) {
@@ -153,9 +168,7 @@ func (icmp *ICMPv4) HandleRedirect(skb *netstack.SkBuff) {
 }
 
 // function to send PARAMETER PROBLEM message
-func (icmp *ICMPv4) SendParamProblem(skb *netstack.SkBuff, code uint8) {
-}
+func (icmp *ICMPv4) SendParamProblem(skb *netstack.SkBuff, code uint8) {}
 
 // function to send TIME EXCEEDED message
-func (icmp *ICMPv4) SendTimeExceeded(skb *netstack.SkBuff, code uint8) {
-}
+func (icmp *ICMPv4) SendTimeExceeded(skb *netstack.SkBuff, code uint8) {}

@@ -85,6 +85,7 @@ func NewUDP() *UDPProtocol {
 }
 
 func (udp *UDPProtocol) HandleRx(skb *netstack.SkBuff) {
+	udp.Log.Printf("HandleRx -- UDP packet")
 	// Create a new UDP header
 	h := &UDPHeader{}
 

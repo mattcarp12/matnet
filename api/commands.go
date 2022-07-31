@@ -104,3 +104,20 @@ func Read(sock socket.SockID, data *[]byte) error {
 
 	return resp.Err
 }
+
+func Bind(sockID socket.SockID, addr SockAddr) error {
+	// Create a bind request object
+	req := socket.SockSyscallRequest{
+		SyscallType: socket.SyscallBind,
+		SockID:      sockID,
+		SockType:    sockID.GetSocketType(),
+		Addr:        socket.SockAddr(addr),
+	}
+
+	resp, err := ipcSendRecv(req)
+	if err != nil {
+		return err
+	}
+
+	return resp.Err
+}

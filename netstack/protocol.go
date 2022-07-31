@@ -43,10 +43,10 @@ const (
 var ErrProtocolNotFound = errors.New("protocol not found")
 
 type Protocol interface {
-	GetType() ProtocolType
-	GetLayer() Layer
-	SetLayer(Layer)
 	SkBuffReaderWriter
+	GetType() ProtocolType
+	GetLayer() *Layer
+	SetLayer(*Layer)
 	HandleRx(*SkBuff)
 	HandleTx(*SkBuff)
 	RxUp(*SkBuff)   // Used to send packets to the next layer up the stack
@@ -62,7 +62,7 @@ type IProtocol struct {
 	protocolType ProtocolType
 
 	// The layer this protocol belongs to
-	layer Layer
+	layer *Layer
 
 	// Logger
 	Log *log.Logger
@@ -79,21 +79,21 @@ func (protocol *IProtocol) GetType() ProtocolType {
 	return protocol.protocolType
 }
 
-func (protocol *IProtocol) GetLayer() Layer {
+func (protocol *IProtocol) GetLayer() *Layer {
 	return protocol.layer
 }
 
-func (protocol *IProtocol) SetLayer(layer Layer) {
+func (protocol *IProtocol) SetLayer(layer *Layer) {
 	protocol.layer = layer
 }
 
+// RxUp sends the skb to next layer up the stack
 func (protocol *IProtocol) RxUp(skb *SkBuff) {
-	// Send skb to next layer up the stack
 	protocol.layer.GetNextLayer().RxChan() <- skb
 }
 
+// TxDown sends the skb to next layer down the stack
 func (protocol *IProtocol) TxDown(skb *SkBuff) {
-	// Send skb to next layer down the stack
 	protocol.layer.GetPrevLayer().TxChan() <- skb
 }
 

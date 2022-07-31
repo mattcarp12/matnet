@@ -15,12 +15,12 @@ import (
 
 type SockAddr = netstack.SockAddr
 
-/****************************************************************************
-	SockSyscall -
-	The socket layer receives syscalls from the IPC layer and dispatches
-	them to the appropriate socket. The socket layer then sends the response
-	to the IPC layer.
-****************************************************************************/
+// =============================================================================
+// SockSyscall -
+// The socket layer receives syscalls from the IPC layer and dispatches
+// them to the appropriate socket. The socket layer then sends the response
+// to the IPC layer.
+// =============================================================================
 
 type SockSyscallType string
 
@@ -165,10 +165,10 @@ func ParseSockAddr(addr string) (SockAddr, error) {
 	return sockAddr, nil
 }
 
-/****************************************************************************
-	SocketMeta - helper struct for Socket implementations
-	Implements methods common for all sockets
-****************************************************************************/
+// ============================================================================
+// SocketMeta - helper struct for Socket implementations
+// Implements methods common for all sockets
+// ============================================================================
 type SocketMetaOps interface {
 	GetMeta() *SocketMeta
 	GetType() SocketType

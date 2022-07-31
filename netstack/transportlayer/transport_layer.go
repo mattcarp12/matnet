@@ -4,24 +4,14 @@ import (
 	"errors"
 
 	"github.com/mattcarp12/matnet/netstack"
-	"github.com/mattcarp12/matnet/netstack/networklayer"
 )
 
-type TransportLayer struct {
-	netstack.ILayer
-}
-
-func Init(networkLayer *networklayer.NetworkLayer) *TransportLayer {
-	transportLayer := &TransportLayer{}
-	transportLayer.SkBuffReaderWriter = netstack.NewSkBuffChannels()
-
+func Init(networkLayer *netstack.Layer) *netstack.Layer {
 	// Create Transport Layer protocols
 	tcp := NewTCP()
 	udp := NewUDP()
 
-	// Add Transport Layer protocols to Transport Layer
-	transportLayer.AddProtocol(tcp)
-	transportLayer.AddProtocol(udp)
+	transportLayer := netstack.NewLayer(tcp, udp)
 
 	// Set Transport Layer as the Layer for the protocols
 	tcp.SetLayer(transportLayer)
@@ -38,7 +28,7 @@ func Init(networkLayer *networklayer.NetworkLayer) *TransportLayer {
 	netstack.StartProtocol(udp)
 
 	// Start transport layer goroutines
-	netstack.StartLayer(transportLayer)
+	transportLayer.StartLayer()
 
 	return transportLayer
 }

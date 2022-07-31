@@ -5,14 +5,7 @@ import (
 	"github.com/mattcarp12/matnet/netstack/linklayer"
 )
 
-type NetworkLayer struct {
-	netstack.ILayer
-}
-
-func Init(linkLayer *linklayer.LinkLayer) *NetworkLayer {
-	networkLayer := &NetworkLayer{}
-	networkLayer.SkBuffReaderWriter = netstack.NewSkBuffChannels()
-
+func Init(linkLayer *linklayer.LinkLayer) *netstack.Layer {
 	arp := NewARP()
 	linkLayer.AddNeighborProtocol(arp)
 
@@ -22,10 +15,7 @@ func Init(linkLayer *linklayer.LinkLayer) *NetworkLayer {
 
 	ipv6 := NewIPV6()
 
-	// Add Network Layer protocols to Network Layer
-	networkLayer.AddProtocol(ipv4)
-	networkLayer.AddProtocol(ipv6)
-	networkLayer.AddProtocol(arp)
+	networkLayer := netstack.NewLayer(ipv4, ipv6, arp)
 
 	// Set Network Layer as the Layer for the protocols
 	ipv4.SetLayer(networkLayer)
@@ -36,14 +26,14 @@ func Init(linkLayer *linklayer.LinkLayer) *NetworkLayer {
 	linkLayer.SetNextLayer(networkLayer)
 
 	// Set Link Layer as previous layer for Network Layer
-	networkLayer.SetPrevLayer(linkLayer)
+	networkLayer.SetPrevLayer(linkLayer.Layer)
 
 	// Start protocol goroutines
 	netstack.StartProtocol(ipv4)
 	netstack.StartProtocol(ipv6)
 
 	// Start network layer goroutines
-	netstack.StartLayer(networkLayer)
+	networkLayer.StartLayer()
 
 	return networkLayer
 }

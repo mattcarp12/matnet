@@ -2,18 +2,17 @@ package socket
 
 import (
 	"bufio"
-	"log"
 	"net"
 	"os"
 
 	"github.com/google/uuid"
+	"github.com/mattcarp12/matnet/netstack"
 )
 
-var ipcLog = log.New(os.Stdout, "[IPC] ", log.Ldate|log.Lmicroseconds|log.Lshortfile)
+var ipcLog = netstack.NewLogger("IPC")
 
 type IPC struct {
 	SocketLayer     *SocketLayer
-	server          *IPCServer
 	ConnMap         map[string]*ipcConn
 	SyscallRespChan chan SockSyscallResponse
 }
@@ -25,13 +24,8 @@ type ipcConn struct {
 	rxChan      chan SockSyscallResponse
 }
 
-func (ic *ipcConn) getResponse() SockSyscallResponse {
-	return <-ic.rxChan
-}
-
-// IPCServer ...
-type IPCServer struct {
-	done chan bool
+func (iconn *ipcConn) getResponse() SockSyscallResponse {
+	return <-iconn.rxChan
 }
 
 const ipcAddr = "/tmp/gonet.sock"
@@ -76,7 +70,7 @@ func (ipc *IPC) serve() {
 		// TODO : How does this get cleaned up?
 
 		// Start goroutine to handle connection
-		go iconn.handle_connection()
+		go iconn.handleConnection()
 	}
 }
 
@@ -100,15 +94,11 @@ func (ipc *IPC) SyscallResponseLoop() {
 	}
 }
 
-func (server *IPCServer) Wait() {
-	<-server.done
-}
-
-// handle_connection ...
+// handleConnection ...
 // this is the goroutine that will handle the connection
 // to the client process. It listens for Syscall Requests
 // from the client and dispatches them to the socket layer.
-func (iconn *ipcConn) handle_connection() {
+func (iconn *ipcConn) handleConnection() {
 	reader := bufio.NewReader(iconn.conn)
 
 	for {
@@ -165,9 +155,6 @@ func IpcInit(sockerLayer *SocketLayer) *IPC {
 
 	ipc := &IPC{
 		sockerLayer,
-		&IPCServer{
-			make(chan bool),
-		},
 		make(map[string]*ipcConn),
 		make(chan SockSyscallResponse),
 	}

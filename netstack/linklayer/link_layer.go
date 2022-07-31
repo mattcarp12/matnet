@@ -8,19 +8,9 @@ import (
 )
 
 type LinkLayer struct {
-	netstack.ILayer
+	*netstack.Layer
 	tap  *TAPDevice
 	loop *LoopbackDevice
-}
-
-func NewLinkLayer(tap *TAPDevice, loop *LoopbackDevice, eth *EthernetProtocol) *LinkLayer {
-	ll := &LinkLayer{}
-	ll.SkBuffReaderWriter = netstack.NewSkBuffChannels()
-	ll.AddProtocol(eth)
-	ll.tap = tap
-	ll.loop = loop
-
-	return ll
 }
 
 func (ll *LinkLayer) SetNeighborSubsystem(neigh *NeighborSubsystem) {
@@ -67,7 +57,11 @@ func Init() (*LinkLayer, netstack.RoutingTable) {
 	eth := NewEthernet()
 
 	// Create Link Layer
-	linkLayer := NewLinkLayer(tap, loop, eth)
+	linkLayer := &LinkLayer{
+		Layer: netstack.NewLayer(eth),
+		tap:   tap,
+		loop:  loop,
+	}
 
 	neigh := NewNeighborSubsystem()
 	linkLayer.SetNeighborSubsystem(neigh)
@@ -77,7 +71,7 @@ func Init() (*LinkLayer, netstack.RoutingTable) {
 	loop.LinkLayer = linkLayer
 
 	// Give Ethernet protocol pointer to Link Layer
-	eth.SetLayer(linkLayer)
+	eth.SetLayer(linkLayer.Layer)
 
 	// Start device goroutines
 	netstack.StartInterface(tap)
@@ -87,7 +81,7 @@ func Init() (*LinkLayer, netstack.RoutingTable) {
 	netstack.StartProtocol(eth)
 
 	// Start link layer goroutines
-	netstack.StartLayer(linkLayer)
+	linkLayer.StartLayer()
 
 	// Make routing table
 	routingTable := netstack.NewRoutingTable()
