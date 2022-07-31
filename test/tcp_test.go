@@ -2,6 +2,7 @@ package test
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strings"
@@ -33,19 +34,15 @@ func startTCPServer(t *testing.T) *net.TCPListener {
 	return listener
 }
 
-func TestTCPConnect(t *testing.T) {
+func TestTCP_Connect(t *testing.T) {
 	// Start TCP server
 	listener := startTCPServer(t)
 	defer listener.Close()
 
 	// Create a new socket
 	sock, err := s.Socket(s.SOCK_STREAM)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	t.Logf("Created socket: %v", sock)
-
+	assert.NoError(t, err)
+	
 	// Connect to the socket
 	err = s.Connect(sock, LocalTCPAddr())
 	assert.NoError(t, err)
@@ -58,4 +55,31 @@ func TestTCPConnect(t *testing.T) {
 	remoteAddr := conn.RemoteAddr().String()
 	t.Logf("Connected to %s\n", remoteAddr)
 	assert.Equal(t, netstack.DefaultIPAddr, strings.Split(remoteAddr, ":")[0])
+}
+
+func TestTCP_SendClose(t *testing.T) {
+	// Start TCP server
+	listener := startTCPServer(t)
+	defer listener.Close()
+
+	// Create a new socket
+	sock, err := s.Socket(s.SOCK_STREAM)
+	assert.NoError(t, err)
+
+	// Connect to the socket
+	err = s.Connect(sock, LocalTCPAddr())
+	assert.NoError(t, err)
+
+	// Accept the connection on the server
+	conn, err := listener.Accept()
+	assert.NoError(t, err)
+
+	// Initiate close
+	err = s.Close(sock)
+	assert.NoError(t, err)
+
+	// Check if the connection is closed
+	one := make([]byte, 1)
+	_, err = conn.Read(one)
+	assert.ErrorIs(t, err, io.EOF)
 }

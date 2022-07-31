@@ -121,3 +121,19 @@ func Bind(sockID socket.SockID, addr SockAddr) error {
 
 	return resp.Err
 }
+
+func Close(sockID socket.SockID) error {
+	// Create a close request object
+	req := socket.SockSyscallRequest{
+		SyscallType: socket.SyscallClose,
+		SockID:      sockID,
+		SockType:    sockID.GetSocketType(),
+	}
+
+	resp, err := ipcSendRecv(req)
+	if err != nil {
+		return err
+	}
+
+	return resp.Err
+}

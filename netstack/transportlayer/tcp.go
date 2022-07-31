@@ -302,6 +302,11 @@ type TCB struct {
 	RxChan       chan *netstack.SkBuff
 	RxChanSorted chan *netstack.SkBuff
 	RxQueue      SegmentQueue
+
+	// Helper metadata for transmitting SkBuffs
+	SrcAddr netstack.SockAddr
+	DstAddr netstack.SockAddr
+	TxIface netstack.NetworkInterface
 }
 
 func (tcp *TCPProtocol) NewTCB(connID string) *TCB {
@@ -339,6 +344,9 @@ var (
 	ErrInvalidAckNumber      = errors.New("invalid ack number")
 	ErrAckNotSet             = errors.New("ack bit not set in header")
 	ErrConnectionReset       = errors.New("connection reset")
+	ErrConnectionNoExist     = errors.New("connection does not exist")
+	ErrConnectionIllegal     = errors.New("illegal connection")
+	ErrConnectionClosing     = errors.New("connection is closing")
 )
 
 func NewTCP() *TCPProtocol {
@@ -622,6 +630,9 @@ func (tcp *TCPProtocol) OpenConnection(srcAddr, dstAddr netstack.SockAddr, iface
 	tcb.State = TCP_STATE_SYN_SENT
 	tcb.SendUNA = isn
 	tcb.SendNXT = isn + 1
+	tcb.SrcAddr = srcAddr
+	tcb.DstAddr = dstAddr
+	tcb.TxIface = iface
 
 	return nil
 }
@@ -648,17 +659,87 @@ func setTCPChecksum(skb *netstack.SkBuff, header *TCPHeader) {
 	header.Checksum = netstack.Checksum(b)
 }
 
-func (tcp *TCPProtocol) CloseConnection() {
-	// This function is meant to be called by the Socket layer,
-	// in response to a socket close request.
+// CloseConnection is meant to be called by the Socket layer,
+// in response to a socket close request.
+func (tcp *TCPProtocol) CloseConnection(srcAddr, dstAddr netstack.SockAddr) error {
+	// Get the TCB
+	connID := ConnectionID(srcAddr, dstAddr)
 
-	// Find the TCB for this connection
-	// Update the TCB
-	// Send a FIN packet to the remote TCP
-	// Wait for an ACK
+	tcb, ok := tcp.ConnTable[connID]
+	if !ok {
+		tcp.Log.Printf("CloseConnection: No TCB for %v\n", connID)
+		return fmt.Errorf("CloseConnection: No TCB for %v. %w", connID, ErrConnectionNoExist)
+	}
+
+	switch tcb.State {
+	case TCP_STATE_CLOSED:
+		tcp.Log.Printf("CloseConnection: Connection %v already closed\n", connID)
+		return fmt.Errorf("CloseConnection: Connection %v already closed. %w", connID, ErrConnectionIllegal)
+
+	case TCP_STATE_LISTEN, TCP_STATE_SYN_SENT:
+		// Delete the TCB
+		delete(tcp.ConnTable, connID)
+		tcp.Log.Printf("CloseConnection: Connection %v closed\n", connID)
+		return nil
+
+	case TCP_STATE_SYN_RCVD, TCP_STATE_ESTABLISHED:
+		// Queue a FIN, enter FIN_WAIT_1 state
+		tcb.State = TCP_STATE_FIN_WAIT_1
+		return tcp.SendFin(tcb)
+
+	case TCP_STATE_CLOSE_WAIT:
+		// Send a FIN, enter CLOSING state
+		tcb.State = TCP_STATE_CLOSING
+		return tcp.SendFin(tcb)
+
+	case TCP_STATE_FIN_WAIT_1, TCP_STATE_FIN_WAIT_2, TCP_STATE_CLOSING, TCP_STATE_LAST_ACK, TCP_STATE_TIME_WAIT:
+		return fmt.Errorf("CloseConnection: %w", ErrConnectionClosing)
+	}
+
+	return nil
 }
 
-// This function is called when a packet is received and the state is TCP_STATE_SYN_SENT
+// SendFin sends a FIN packet to the remote TCP
+func (tcp *TCPProtocol) SendFin(tcb *TCB) error {
+	// Make empty skb
+	skb := netstack.NewSkBuff([]byte{})
+
+	skb.SetSrcAddr(tcb.SrcAddr)
+	skb.SetDstAddr(tcb.DstAddr)
+	skb.SetTxIface(tcb.TxIface)
+
+	if err := setSkbType(skb); err != nil {
+		return err
+	}
+
+	// Make TCP header
+	header := &TCPHeader{}
+
+	header.SrcPort = tcb.SrcAddr.Port
+	header.DstPort = tcb.DstAddr.Port
+	header.BitFlags = TCP_FIN
+	header.SeqNum = tcb.SendNXT
+	header.AckNum = tcb.RecvNXT
+	header.HeaderLen = 5
+	header.Window = 0xFFFF
+	header.UrgentPtr = 0
+
+	setTCPChecksum(skb, header)
+	skb.SetL4Header(header)
+	skb.PrependBytes(header.Marshal())
+
+	// Send to the network layer
+	tcp.TxDown(skb)
+
+	if skbResp := skb.GetResp(); skbResp.Error != nil {
+		tcp.Log.Printf("SendFin: Error sending FIN: %v\n", skbResp.Error)
+		return skbResp.Error
+	}
+
+	return nil
+}
+
+// HandleSynSent is called when a packet is received and the state is TCP_STATE_SYN_SENT
 func (tcp *TCPProtocol) HandleSynSent(skb *netstack.SkBuff, tcb *TCB, tcpHeader *TCPHeader) error {
 	tcp.Log.Printf("HandleSynSent: %v\n", tcpHeader)
 	// First check the ACK bit

@@ -57,6 +57,18 @@ func (s *TCPSocket) Connect(_ SockAddr) error {
 
 // Close...
 func (s *TCPSocket) Close() error {
+	// Get the TCP protocol
+	tcpProtocol, ok := s.Protocol.(*transportlayer.TCPProtocol)
+	if !ok {
+		return errors.New("TCPSocket Close: TCP socket does not have a TCP protocol attached")
+	}
+
+	// Close the connection
+	err := tcpProtocol.CloseConnection(s.SocketMeta.GetSrcAddr(), s.SocketMeta.GetDestAddr())
+	if err != nil {
+		return fmt.Errorf("TCPSocket Close: error closing connection: %w", err)
+	}
+
 	return nil
 }
 

@@ -57,11 +57,10 @@ type SockSyscallResponse struct {
 }
 
 func (req SockSyscallRequest) MakeResponse() SockSyscallResponse {
-	var resp SockSyscallResponse
-	resp.ConnID = req.ConnID
-	resp.SockID = req.SockID
-
-	return resp
+	return SockSyscallResponse{
+		ConnID: req.ConnID,
+		SockID: req.SockID,
+	}
 }
 
 func (req *SockSyscallRequest) Read(reader *bufio.Reader) error {

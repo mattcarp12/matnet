@@ -173,7 +173,6 @@ func (socketLayer *SocketLayer) connect(syscall SockSyscallRequest) {
 	sock, err := socketLayer.getSocket(syscall.SockType, syscall.SockID)
 	if err != nil {
 		socketLayer.err(ErrInvalidSocketID, resp)
-
 		return
 	}
 
@@ -187,6 +186,28 @@ func (socketLayer *SocketLayer) connect(syscall SockSyscallRequest) {
 
 	// Set the socket's source ip address
 	sock.SetSrcIP(route.Network.IP)
+
+	// Set the socket's source port
+	socketManager, err := socketLayer.GetProtocol(sock.GetProtocol().GetType())
+	if err != nil {
+		socketLayer.err(err, resp)
+		return
+	}
+	sm := socketManager.(*SocketManager)
+
+	port, err := sm.getUnusedPort()
+	if err != nil {
+		socketLayer.err(err, resp)
+		return
+	}
+
+	err = sm.assignPort(port, sock)
+	if err != nil {
+		socketLayer.err(err, resp)
+		return
+	}
+
+	sock.SetSrcPort(port)
 
 	// Connect to destination (blocking call)
 	err = sock.Connect(destAddr)
@@ -203,7 +224,6 @@ func (socketLayer *SocketLayer) close(syscall SockSyscallRequest) {
 	sock, err := socketLayer.getSocket(syscall.SockType, syscall.SockID)
 	if err != nil {
 		socketLayer.err(ErrInvalidSocketID, syscall.MakeResponse())
-
 		return
 	}
 
@@ -367,7 +387,6 @@ func NewSocketManager(protoType netstack.ProtocolType) *SocketManager {
 }
 
 func (sm *SocketManager) HandleRx(skb *netstack.SkBuff) {
-	sockLog.Printf("SocketProtocol: HandleRx: skb: %v", skb)
 	// Get the port number from the skb
 	port := skb.GetDstPort()
 
@@ -377,11 +396,8 @@ func (sm *SocketManager) HandleRx(skb *netstack.SkBuff) {
 
 	// If the socket is nil, then we don't have a socket for this port
 	if sock == nil {
-		sockLog.Printf("No socket for port %d\n", port)
 		return
 	}
-
-	sockLog.Printf("SocketProtocol: HandleRx: skb: %v", skb)
 
 	// Pass the skb to the socket
 	sock.GetRxChan() <- skb
