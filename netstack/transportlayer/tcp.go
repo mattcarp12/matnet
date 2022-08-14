@@ -4,9 +4,12 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"log"
 	"math/rand"
 	"net"
 	"time"
+
+	"github.com/mattcarp12/matnet/netstack/util"
 
 	"github.com/mattcarp12/matnet/netstack"
 )
@@ -14,6 +17,9 @@ import (
 // =============================================================================
 // TCP Header
 // =============================================================================
+
+var ErrInvalidTCPHeader = errors.New("invalid TCP header")
+
 type TCPHeader struct {
 	SrcPort   uint16
 	DstPort   uint16
@@ -195,7 +201,7 @@ func (o *TCPOptions) Unmarshal(b []byte) {
 		case TCPOptionKindEndOfOptions, TCPOptionKindNop:
 			// End of options
 			return
-		case 2:
+		case TCPOptionKindMSS:
 			// MSS
 			option.Mss = binary.BigEndian.Uint16(b[2:4])
 			optionLength = int(b[1])
@@ -283,6 +289,7 @@ const (
 )
 
 type TCB struct {
+	TCP   *TCPProtocol
 	ID    string
 	State TCPState
 
@@ -299,37 +306,78 @@ type TCB struct {
 	RecvUP  uint32 // Urgent pointer
 	RecvISN uint32 // Initial sequence number
 
-	RxChan       chan *netstack.SkBuff
-	RxChanSorted chan *netstack.SkBuff
-	RxQueue      SegmentQueue
+	RxChan       chan TCPBuffer
+	RxChanSorted chan TCPBuffer
+	RxQueue      *util.Heap[TCPBuffer]
+	QuitChan     chan struct{}
 
 	// Helper metadata for transmitting SkBuffs
 	SrcAddr netstack.SockAddr
 	DstAddr netstack.SockAddr
 	TxIface netstack.NetworkInterface
+
+	Log *log.Logger
 }
 
+const (
+	TCP_QUEUE_SIZE = 1024
+)
+
 func (tcp *TCPProtocol) NewTCB(connID string) *TCB {
+
+	rxQueue := util.NewHeap(tcpBuffLess)
+
 	tcb := &TCB{
+		TCP:          tcp,
 		ID:           connID,
 		State:        TCP_STATE_CLOSED,
-		RxChan:       make(chan *netstack.SkBuff),
-		RxChanSorted: make(chan *netstack.SkBuff),
+		RxChan:       make(chan TCPBuffer, TCP_QUEUE_SIZE),
+		RxChanSorted: make(chan TCPBuffer, TCP_QUEUE_SIZE),
+		QuitChan:     make(chan struct{}),
+		RxQueue:      rxQueue,
+		RecvWND:      0xffff,
+		Log:          tcp.Log,
 	}
 
 	tcp.ConnTable[connID] = tcb
 
+	go tcb.MainLoop()
+
 	return tcb
 }
 
-type SegmentQueue []*netstack.SkBuff
+type TCPBuffer struct {
+	Header *TCPHeader
+	SkBuff *netstack.SkBuff
+}
 
-// func (q SegmentQueue) Len() int { return len(q) }
-// func (q SegmentQueue) Less(i, j int) bool {
-// 	segment1 := q[i].L4Header.(*TcpHeader)
-// 	segment2 := q[j].L4Header.(*TcpHeader)
-// 	return segment1.SeqNum < segment2.SeqNum
-// }
+func tcpBuffLess(a, b TCPBuffer) bool {
+	return a.Header.SeqNum < b.Header.SeqNum
+}
+
+/*
+Each TCP connection is handled in it's own goroutine.
+This is the main loop of the connection.
+*/
+func (tcb *TCB) MainLoop() {
+	for {
+		select {
+		// RxChan is where we receive packets from the network stack.
+		// They are not in sorted order, so we need to sort them.
+		case skb := <-tcb.RxChan:
+			tcb.sortSegment(skb)
+
+		// RxChanSorted are the packets we have received in sorted order,
+		// starting with RecvNXT sequence number.
+		case skb := <-tcb.RxChanSorted:
+			tcb.handleSegmentArrives(skb)
+
+		// QuitChan is where we receive a signal to quit (obvi).
+		case <-tcb.QuitChan:
+			return
+		}
+	}
+}
 
 // ============================================================================
 // TCP Protocol
@@ -345,8 +393,10 @@ var (
 	ErrAckNotSet             = errors.New("ack bit not set in header")
 	ErrConnectionReset       = errors.New("connection reset")
 	ErrConnectionNoExist     = errors.New("connection does not exist")
+	ErrConnectionNoExistRST  = errors.New("received RST for non-existent connection")
 	ErrConnectionIllegal     = errors.New("illegal connection")
 	ErrConnectionClosing     = errors.New("connection is closing")
+	ErrInvalidState          = errors.New("tcp: invalid state")
 )
 
 func NewTCP() *TCPProtocol {
@@ -362,13 +412,14 @@ func NewTCP() *TCPProtocol {
 /*
 	TCP HandleRx algorithm
 	- Unmarshal the TCP header
-	- Find the TCB. Create new TCB is packet is a SYN.
+	- Find the TCB. Error if TCB does not exist.
 	- Check the sequence numbers, make sure packet is within the window.
 	- Put the packet into the segment processing queue.
 */
 
 func (tcp *TCPProtocol) HandleRx(skb *netstack.SkBuff) {
 	tcp.Log.Printf("HandleRx: %+v\n", skb)
+
 	// Create a new TCP header
 	tcpHeader := &TCPHeader{}
 
@@ -390,54 +441,145 @@ func (tcp *TCPProtocol) HandleRx(skb *netstack.SkBuff) {
 	var tcb *TCB
 
 	tcb, ok := tcp.ConnTable[connID]
-	if !ok {
+	if !ok || tcb == nil {
 		// TCB does not exist. All data is discarded.
 		if tcpHeader.IsRST() {
-			skb.Error(errors.New("TCP: RST received for non-existent connection"))
+			skb.Error(ErrConnectionNoExistRST)
 			return
 		}
 
 		tcp.SendEmptyRst(tcpHeader)
 	}
 
+	tcp.Log.Printf("\n\n********************************************************************\nRECEIVED TCP SEGMENT\n")
 	tcp.Log.Printf("TCP Header: %+v\n", tcpHeader)
 	tcp.Log.Printf("TCB: %+v\n", tcb)
 	tcp.Log.Printf("Header IsSyn: %v\n", tcpHeader.IsSYN())
 	tcp.Log.Printf("Header IsACK: %v\n", tcpHeader.IsACK())
+	tcp.Log.Printf("Header IsFIN: %v\n", tcpHeader.IsFIN())
+	tcp.Log.Printf("\n********************************************************************\n\n")
+
+	// Put the packet into the TCB's RxQueue
+	tcb.RxChan <- TCPBuffer{
+		Header: tcpHeader,
+		SkBuff: skb,
+	}
+}
+
+// This is where incoming packets are checked for seq numbers, and
+// put into the TCB's processing queue in the correct order.
+func (tcb *TCB) sortSegment(tcpBuff TCPBuffer) {
+	header := tcpBuff.Header
+	skb := tcpBuff.SkBuff
+
+	// If we're in the SYN-SENT state, the usual processing does not apply.
+	// We must handle this case specially.
+	if tcb.State == TCP_STATE_SYN_SENT {
+		if err := tcb.HandleSynSent(tcpBuff); err != nil {
+			skb.Error(err)
+		}
+		return
+	}
+
+	// First check the sequence number, make sure it's in the window
+	if header.SeqNum < tcb.RecvNXT || header.SeqNum > tcb.RecvNXT+tcb.RecvWND {
+		tcb.Log.Printf("TCP: SeqNum out of window\n")
+		skb.Error(ErrInvalidSequenceNumber)
+		return
+	}
+
+	// The new segment is within the window, so put it in the TCB's RxQueue.
+	tcb.RxQueue.Push(tcpBuff)
+
+	// Check the next packet in the queue, see if it's ready to be processed
+	tcpBuff2 := tcb.RxQueue.Peek()
+
+	if tcpBuff2.Header.SeqNum != tcb.RecvNXT {
+		return
+	}
+
+	// If we're here, we have a packet that matches the next sequence number.
+	// So enqueue it to the sorted channel, and also all the next packets
+	// that are ready to be processed, incrementing RecvNXT as we go.
+	for {
+		if tcb.RxQueue.Len() == 0 {
+			break
+		}
+
+		tcpBuff := tcb.RxQueue.Peek()
+
+		// Check the sequence number, make sure it equals RecvNXT
+		if tcpBuff.Header.SeqNum != tcb.RecvNXT {
+			break
+		}
+
+		// If we're here, we have a packet that matches the next sequence number.
+		tcpBuff = tcb.RxQueue.Pop()
+		tcb.RxChanSorted <- tcpBuff
+
+		// At this point, the TCP Header has been stripped from the skbuff data buffer,
+		// and all that is left is the application data. So we can increment the RecvNXT,
+		// by the length of the application data.
+		tcb.RecvNXT += uint32(len(tcpBuff.SkBuff.Data))
+	}
+}
+
+// This is where the main TCP logic happens. This function should be called with packets
+// in sequence number order.
+func (tcb *TCB) handleSegmentArrives(tcpBuff TCPBuffer) {
+	tcb.Log.Printf("\n\nTCP: handleSegmentArrives\n\n")
+
+	header := tcpBuff.Header
+	skb := tcpBuff.SkBuff
 
 	// Handle the TCP packet
 
-	// Check the sequence number, make sure it's in the window
-	// if tcpHeader.SeqNum < tcb.RecvNXT || tcpHeader.SeqNum > tcb.RecvNXT+tcb.RecvWND {
-	// 	// skb.Error(errors.New("TCP: SeqNum out of window"))
-	// 	tcp.Log.Printf("TCP: SeqNum out of window\n")
-	// 	return
-	// }
+	// If we received an ACK, set SendNXT to the AckNum
+	if header.IsACK() {
+		tcb.SendNXT = header.AckNum
+	}
 
 	switch tcb.State {
 	default:
-		skb.Error(errors.New("TCP: Invalid state"))
+		skb.Error(ErrInvalidState)
 	case TCP_STATE_LISTEN:
-		if tcpHeader.IsSYN() {
-			tcp.SendSynAck(skb, tcb, tcpHeader)
+		if header.IsSYN() {
+			tcb.SendSynAck(tcpBuff)
 			return
 		}
 	case TCP_STATE_SYN_RCVD:
 		// Here we sent a SYN+ACK, and now we are waiting for an ACK.
-		if tcpHeader.IsACK() && tcpHeader.AckNum == tcb.SendNXT {
+		if header.IsACK() && header.AckNum == tcb.SendNXT {
 			tcb.State = TCP_STATE_ESTABLISHED
 		}
 	case TCP_STATE_SYN_SENT:
-		if err := tcp.HandleSynSent(skb, tcb, tcpHeader); err != nil {
-			skb.Error(err)
-			return
+		// This should have already been handled in sortSegment.
+		tcb.Log.Printf("Error: Should not be in SYN_SENT state at this point.\n")
+		skb.Error(ErrInvalidState)
+
+	case TCP_STATE_FIN_WAIT_1:
+		// Here we sent a FIN segment, and now we are waiting for a FIN+ACK.
+		if header.IsACK() && header.AckNum == tcb.SendNXT {
+			tcb.State = TCP_STATE_FIN_WAIT_2
+
+			// If we received a FIN+ACK, we need to ACK it.
+			if header.IsFIN() {
+				tcb.Log.Printf("\n\nRECEIVED A FIN+ACK\n\n")
+				tcb.SendAck(tcpBuff)
+			}
 		}
 
+	case TCP_STATE_FIN_WAIT_2:
+		// Here we received an ACK for our FIN segment, and now we are waiting for a FIN+ACK.
+		if header.IsACK() && header.IsFIN() && header.AckNum == tcb.SendNXT {
+			// Need to ACK the FIN
+			tcb.SendAck(tcpBuff)
+			tcb.State = TCP_STATE_CLOSE_WAIT
+		}
+
+	case TCP_STATE_ESTABLISHED:
+
 	}
-
-	// Update the TCB
-
-	// Everything is good, send to user space
 }
 
 func (tcp *TCPProtocol) HandleTx(skb *netstack.SkBuff) {
@@ -471,7 +613,10 @@ func ISN() uint32 {
 // SendSynAck sends a SYN/ACK packet to the remote TCP in response
 // to a SYN packet. The TCB is updated with the remote TCP's ISN.
 // The TCBs state is set to TCP_STATE_SYN_RCVD.
-func (tcp *TCPProtocol) SendSynAck(skb *netstack.SkBuff, tcb *TCB, requestHeader *TCPHeader) {
+func (tcb *TCB) SendSynAck(tcpBuff TCPBuffer) {
+	requestHeader := tcpBuff.Header
+	skb := tcpBuff.SkBuff
+
 	// Create a new TCP header
 	newHeader := &TCPHeader{}
 
@@ -509,14 +654,17 @@ func (tcp *TCPProtocol) SendSynAck(skb *netstack.SkBuff, tcb *TCB, requestHeader
 	setSkbType(newSkb)
 
 	// Send to the network layer
-	tcp.TxDown(newSkb)
+	tcb.TCP.TxDown(newSkb)
 
 	// Wait for skb to be sent
 	newSkb.GetResp()
 }
 
-func (tcp *TCPProtocol) SendAck(skb *netstack.SkBuff, tcb *TCB, requestHeader *TCPHeader) {
-	tcp.Log.Printf("Sending Ack for %+v\n", requestHeader)
+func (tcb *TCB) SendAck(tcpBuff TCPBuffer) {
+	requestHeader := tcpBuff.Header
+	skb := tcpBuff.SkBuff
+
+	tcb.Log.Printf("Sending Ack for %+v\n", requestHeader)
 	newHeader := &TCPHeader{}
 
 	newHeader.SrcPort = requestHeader.GetDstPort()
@@ -541,7 +689,7 @@ func (tcp *TCPProtocol) SendAck(skb *netstack.SkBuff, tcb *TCB, requestHeader *T
 
 	rxIface, err := skb.GetRxIface()
 	if err != nil {
-		tcp.Log.Printf("Error getting rxIface: %v\n", err)
+		tcb.Log.Printf("Error getting rxIface: %v\n", err)
 		return
 	}
 
@@ -549,7 +697,7 @@ func (tcp *TCPProtocol) SendAck(skb *netstack.SkBuff, tcb *TCB, requestHeader *T
 
 	setSkbType(newSkb)
 
-	tcp.TxDown(newSkb)
+	tcb.TCP.TxDown(newSkb)
 
 	newSkb.GetResp()
 }
@@ -662,6 +810,8 @@ func setTCPChecksum(skb *netstack.SkBuff, header *TCPHeader) {
 // CloseConnection is meant to be called by the Socket layer,
 // in response to a socket close request.
 func (tcp *TCPProtocol) CloseConnection(srcAddr, dstAddr netstack.SockAddr) error {
+	tcp.Log.Printf("CloseConnection: %v -> %v\n", srcAddr, dstAddr)
+
 	// Get the TCB
 	connID := ConnectionID(srcAddr, dstAddr)
 
@@ -682,6 +832,7 @@ func (tcp *TCPProtocol) CloseConnection(srcAddr, dstAddr netstack.SockAddr) erro
 		tcp.Log.Printf("CloseConnection: Connection %v closed\n", connID)
 		return nil
 
+	// Normal case
 	case TCP_STATE_SYN_RCVD, TCP_STATE_ESTABLISHED:
 		// Queue a FIN, enter FIN_WAIT_1 state
 		tcb.State = TCP_STATE_FIN_WAIT_1
@@ -717,7 +868,7 @@ func (tcp *TCPProtocol) SendFin(tcb *TCB) error {
 
 	header.SrcPort = tcb.SrcAddr.Port
 	header.DstPort = tcb.DstAddr.Port
-	header.BitFlags = TCP_FIN
+	header.BitFlags = TCP_FIN | TCP_ACK
 	header.SeqNum = tcb.SendNXT
 	header.AckNum = tcb.RecvNXT
 	header.HeaderLen = 5
@@ -740,27 +891,29 @@ func (tcp *TCPProtocol) SendFin(tcb *TCB) error {
 }
 
 // HandleSynSent is called when a packet is received and the state is TCP_STATE_SYN_SENT
-func (tcp *TCPProtocol) HandleSynSent(skb *netstack.SkBuff, tcb *TCB, tcpHeader *TCPHeader) error {
-	tcp.Log.Printf("HandleSynSent: %v\n", tcpHeader)
+func (tcb *TCB) HandleSynSent(tcpBuff TCPBuffer) error {
+	header := tcpBuff.Header
+
+	tcb.Log.Printf("HandleSynSent: %v\n", header)
 	// First check the ACK bit
-	if tcpHeader.IsACK() {
-		if tcpHeader.AckNum <= tcb.SendISN || tcpHeader.AckNum > tcb.SendNXT {
-			tcp.SendEmptyRst(tcpHeader)
+	if header.IsACK() {
+		if header.AckNum <= tcb.SendISN || header.AckNum > tcb.SendNXT {
+			tcb.TCP.SendEmptyRst(header)
 			return fmt.Errorf("HandleSynSent: %w", ErrInvalidSequenceNumber)
 		}
 	}
 
 	// Check if the ACK number is valid
-	if tcpHeader.AckNum < tcb.SendUNA && tcpHeader.AckNum > tcb.SendNXT {
+	if header.AckNum < tcb.SendUNA && header.AckNum > tcb.SendNXT {
 		return fmt.Errorf("HandleSynSent: %w", ErrInvalidAckNumber)
 	}
 
 	// Second check the RST bit
-	if tcpHeader.IsRST() {
+	if header.IsRST() {
 		// TODO: How to signal to the user that the connection was reset?
 
 		// Remove the TCB
-		delete(tcp.ConnTable, tcb.ID)
+		delete(tcb.TCP.ConnTable, tcb.ID)
 
 		return ErrConnectionReset
 	}
@@ -768,18 +921,18 @@ func (tcp *TCPProtocol) HandleSynSent(skb *netstack.SkBuff, tcb *TCB, tcpHeader 
 	// TODO: Check Security and Precedence bits
 
 	// Fourth check the SYN bit
-	if tcpHeader.IsSYN() {
-		tcb.RecvNXT = tcpHeader.SeqNum + 1
-		tcb.RecvISN = tcpHeader.SeqNum
-		tcb.SendUNA = tcpHeader.AckNum
+	if header.IsSYN() {
+		tcb.RecvNXT = header.SeqNum + 1
+		tcb.RecvISN = header.SeqNum
+		tcb.SendUNA = header.AckNum
 
 		// Update the state
 		if tcb.SendUNA > tcb.SendISN {
 			tcb.State = TCP_STATE_ESTABLISHED
-			tcp.SendAck(skb, tcb, tcpHeader)
+			tcb.SendAck(tcpBuff)
 		} else {
 			tcb.State = TCP_STATE_SYN_RCVD
-			tcp.SendSynAck(skb, tcb, tcpHeader)
+			tcb.SendSynAck(tcpBuff)
 		}
 	}
 

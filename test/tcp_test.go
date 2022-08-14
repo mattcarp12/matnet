@@ -42,7 +42,7 @@ func TestTCP_Connect(t *testing.T) {
 	// Create a new socket
 	sock, err := s.Socket(s.SOCK_STREAM)
 	assert.NoError(t, err)
-	
+
 	// Connect to the socket
 	err = s.Connect(sock, LocalTCPAddr())
 	assert.NoError(t, err)
@@ -73,6 +73,8 @@ func TestTCP_SendClose(t *testing.T) {
 	// Accept the connection on the server
 	conn, err := listener.Accept()
 	assert.NoError(t, err)
+
+	defer conn.Close()
 
 	// Initiate close
 	err = s.Close(sock)

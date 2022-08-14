@@ -65,7 +65,7 @@ enable = [
     "noctx",
     "nolintlint",
     "nonamedreturns",
-    "nosnakecase",
+    # "nosnakecase",
     "nosprintfhostport",
     "paralleltest",
     "prealloc",
